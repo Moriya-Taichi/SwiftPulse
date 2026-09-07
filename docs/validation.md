@@ -9,7 +9,9 @@ Local verification on 2026-09-07: Swift 6.0.3, Ubuntu 24.04 x86_64, Node 24.19.0
 | Studio data-model tests | Passed; 7 tests |
 | Server and observer integration | Passed |
 | PulseLoad against Python HTTP server | Passed |
-| Linux/macOS and browser CI for this revision | Pending publication; workflow updated |
+| Linux/macOS and browser CI for this revision | Passed; both jobs completed successfully |
+
+[GitHub Actions run 34154503402](https://github.com/Moriya-Taichi/SwiftPulse/actions/runs/34154503402) passed on implementation commit `9036902ff69c4b0e4b5de24a9e6c707199c4a936`, including the isolated-package builds on both operating systems and the Linux browser suite.
 
 The server integration checks ordinary request correlation, trace ring overwrite, cursor deltas, server restart, a 1,004,000-byte echo, HEAD, malformed framing, a read timeout and the read-only Studio API. There is no dependency on the load package.
 

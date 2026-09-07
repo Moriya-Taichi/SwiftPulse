@@ -57,13 +57,15 @@ python3 scripts/benchmark.py \
   --trace-capacity 500000 --output extended-comparison.json
 
 # The benchmark package is optional; normal server builds do not include it.
-cp -R Benchmarks ../SwiftPulse-before/Benchmarks
+mkdir -p ../SwiftPulse-before/Benchmarks
+cp Benchmarks/Package.swift ../SwiftPulse-before/Benchmarks/
+cp -R Benchmarks/Sources ../SwiftPulse-before/Benchmarks/
 swift run --package-path ../SwiftPulse-before/Benchmarks -c release \
   -Xswiftc -DBASELINE pulse-microbench 100
 swift run --package-path Benchmarks -c release pulse-microbench 100
 ```
 
-Copy only the benchmark manifest and Sources when the directory already contains a build cache. The baseline's conditional compilation path uses the old stateless parser; the updated path uses HTTPDecoder. The local Swift toolchain required `SWIFT_USE_OLD_DRIVER=1`; normal CI builds use the standard driver.
+The baseline's conditional compilation path uses the old stateless parser; the updated path uses HTTPDecoder. The local Swift toolchain required `SWIFT_USE_OLD_DRIVER=1`; normal CI builds use the standard driver.
 
 Raw results:
 
