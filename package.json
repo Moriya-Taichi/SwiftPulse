@@ -1,0 +1,6 @@
+{
+  "name": "swiftpulse-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test Tests/StudioTests/*.test.mjs"}
+}

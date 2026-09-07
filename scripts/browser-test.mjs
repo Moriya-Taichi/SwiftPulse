@@ -1,0 +1,42 @@
+// Start pulse serve and pulse studio first. PULSE_STUDIO_URL defaults to localhost:9090.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {mkdir} from 'node:fs/promises';
+const require = createRequire(import.meta.url);
+let chromium;
+({chromium}=require('playwright'));
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1100}});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+  await page.goto(process.env.PULSE_STUDIO_URL??'http://127.0.0.1:9090');
+  await page.getByRole('button',{name:'実測サンプル',exact:true}).click();
+  await page.waitForFunction(()=>document.getElementById('metric-p99').textContent!=='—');
+  assert((await page.locator('#request-rows tr').count())>1);
+  await page.locator('#request-rows tr').first().click();
+  assert((await page.locator('#trace-note').textContent()).includes('選択中'));
+  await page.getByRole('button',{name:'リクエスト',exact:true}).click();
+  await page.locator('#zoom').fill('5');await page.locator('#zoom').dispatchEvent('input');
+  await page.getByRole('button',{name:'選択を解除',exact:true}).click();
+  await page.getByRole('button',{name:'ワーカー',exact:true}).click();
+  await page.locator('#zoom').fill('1');await page.locator('#zoom').dispatchEvent('input');
+  await page.locator('#duration').fill('1');await page.locator('#rate').fill('10');
+  await page.getByRole('button',{name:'▶ テスト開始',exact:true}).click();
+  await page.waitForFunction(()=>document.getElementById('connection').textContent==='実行中');
+  await page.waitForFunction(()=>document.getElementById('connection').textContent==='ローカル接続',{},{timeout:15000});
+  await page.waitForFunction(()=>document.getElementById('run-title').textContent.includes('GET')&&!document.getElementById('run-title').textContent.includes('サンプル'));
+  assert((await page.locator('#metric-success').textContent()).includes('100'));
+  await page.locator('#duration').fill('20');await page.getByRole('button',{name:'▶ テスト開始',exact:true}).click();
+  await page.getByRole('button',{name:'停止',exact:true}).click();
+  await page.waitForFunction(()=>document.getElementById('notice').textContent.includes('途中で停止'),{},{timeout:15000});
+  await page.getByRole('button',{name:'実測サンプル',exact:true}).click();
+  await page.waitForFunction(()=>document.getElementById('run-title').textContent.includes('サンプル'));
+  await mkdir('test-results',{recursive:true});
+  await page.screenshot({path:'test-results/studio-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForTimeout(150);
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+  await page.screenshot({path:'test-results/studio-mobile.png',fullPage:true});
+  assert.deepEqual(errors,[]);
+  console.log('PASS: sample, trace filtering, zoom, real run, stop, desktop/mobile, no JS errors');
+}finally{await browser.close();}
