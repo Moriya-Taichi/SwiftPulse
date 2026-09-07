@@ -1,8 +1,9 @@
+import Dispatch
+private func monotonicNS() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-import PulseCore
 
 private actor LoadState {
     var summary = LoadSummary()
@@ -51,7 +52,7 @@ private actor LoadState {
         return result
     }
     func report(id: String, epoch: Double, elapsed: Double, cancelled: Bool) -> RunReport {
-        RunReport(schemaVersion: 1, kind: "swiftpulse.run", id: id, startedAtEpochMS: epoch,
+        RunReport(schemaVersion: 1, kind: "pulseload.run", id: id, startedAtEpochMS: epoch,
             configuration: config, summary: snapshot(elapsed: elapsed, cancelled: cancelled),
             buckets: buckets.values.sorted { $0.second < $1.second }, requests: requests.sorted { $0.sequence < $1.sequence })
     }
@@ -107,19 +108,7 @@ public enum LoadEngine {
             if !Task.isCancelled && now < windowEnd { try? await Task.sleep(nanoseconds: windowEnd - now) }
             if Task.isCancelled { group.cancelAll() }
         }
-        var report = await state.report(id: id, epoch: epoch, elapsed: Double(monotonicNS() - origin) / 1e9, cancelled: Task.isCancelled)
-        if let traceURL = configuration.traceURL, !Task.isCancelled {
-            do {
-                guard let url = URL(string: traceURL), ["http", "https"].contains(url.scheme ?? "") else { throw LoadError.invalidConfiguration }
-                var config = LoadConfiguration(url: traceURL)
-                config.timeout = 10; config.concurrency = 1; config.maxResponseBytes = 64 * 1024 * 1024
-                let client = HTTPProbe(configuration: config, captureBody: true)
-                defer { client.close() }
-                let response = await client.perform(URLRequest(url: url))
-                guard response.status == 200, response.error == nil, let data = response.body else { throw LoadError.invalidConfiguration }
-                report.serverTrace = try JSONDecoder().decode(TraceDocument.self, from: data)
-            } catch { report.traceError = String(describing: error) }
-        }
+        let report = await state.report(id: id, epoch: epoch, elapsed: Double(monotonicNS() - origin) / 1e9, cancelled: Task.isCancelled)
         await progress(report.summary)
         return report
     }

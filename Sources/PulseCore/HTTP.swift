@@ -6,8 +6,13 @@ public struct HTTPRequest: Sendable {
     public let target: String
     public let headers: [String: String]
     public let body: Data
-    public var path: String { String(target.split(separator: "?", maxSplits: 1).first ?? "/") }
-    public var requestID: String { headers["x-pulse-request-id"] ?? UUID().uuidString }
+    public let path: String
+    public let requestID: String
+    public init(method: String, target: String, headers: [String: String], body: Data = Data()) {
+        self.method = method; self.target = target; self.headers = headers; self.body = body
+        path = String(target.prefix(while: { $0 != "?" }))
+        requestID = headers["x-pulse-request-id"] ?? UUID().uuidString
+    }
 }
 public struct HTTPResponse: Sendable {
     public var status: Int
@@ -27,12 +32,15 @@ public struct HTTPResponse: Sendable {
 /// Strict HTTP/1.1 framing: Content-Length only, no TE, no ambiguous duplicates.
 public enum HTTPParser {
     public static func extract(from buffer: inout Data, maxHeader: Int = 16384, maxBody: Int = 1_048_576) throws -> HTTPRequest? {
-        guard let range = buffer.range(of: Data([13, 10, 13, 10])) else {
-            if buffer.count > maxHeader { throw HTTPError.headerTooLarge }; return nil
-        }
-        let headerEnd = buffer.distance(from: buffer.startIndex, to: range.upperBound)
-        guard headerEnd <= maxHeader else { throw HTTPError.headerTooLarge }
-        guard let text = String(data: buffer.prefix(headerEnd - 4), encoding: .utf8) else { throw HTTPError.badRequest }
+        var decoder = HTTPDecoder(maxHeader: maxHeader, maxBody: maxBody)
+        decoder.append(buffer)
+        guard let request = try decoder.next() else { return nil }
+        buffer.removeFirst(decoder.consumedBytes)
+        return request
+    }
+    struct Head: Sendable { let method: String; let target: String; let headers: [String: String]; let length: Int }
+    static func parseHead(_ data: Data, maxBody: Int) throws -> Head {
+        guard let text = String(data: data, encoding: .utf8) else { throw HTTPError.badRequest }
         let lines = text.components(separatedBy: "\r\n")
         let line = (lines.first ?? "").split(separator: " ", omittingEmptySubsequences: false)
         guard line.count == 3, line[2] == "HTTP/1.1", line[1].hasPrefix("/"),
@@ -53,10 +61,7 @@ public enum HTTPParser {
         let rawLength = headers["content-length"] ?? "0"
         guard !rawLength.isEmpty, rawLength.utf8.allSatisfy({ (48...57).contains($0) }), let length = Int(rawLength) else { throw HTTPError.badRequest }
         guard length <= maxBody else { throw HTTPError.bodyTooLarge }
-        guard buffer.count >= headerEnd + length else { return nil }
-        let body = Data(buffer.dropFirst(headerEnd).prefix(length))
-        buffer.removeFirst(headerEnd + length)
-        return HTTPRequest(method: String(line[0]), target: String(line[1]), headers: headers, body: body)
+        return Head(method: String(line[0]), target: String(line[1]), headers: headers, length: length)
     }
     private static func isToken(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.allSatisfy { byte in
@@ -84,6 +89,7 @@ public final class HTTPServer: Sendable {
     public typealias Handler = @Sendable (HTTPRequest) async throws -> HTTPResponse
     public let listener: AsyncSocket
     public let trace: TraceRecorder
+    private let silentTrace = TraceRecorder()
     private let pool: WorkerPool
     private let limit: ConnectionLimit
     private let timeout: Double
@@ -116,19 +122,19 @@ public final class HTTPServer: Sendable {
     }
     private func serve(_ socket: AsyncSocket) async {
         defer { socket.close() }
-        let connectionID = UUID().uuidString
-        var buffer = Data()
+        let tracing = trace.capacity > 0
+        let connectionID = tracing ? UUID().uuidString : ""
+        let reader = RequestReader()
         do {
             // Bounded keep-alive lifetime prevents an idle client from holding a slot forever.
             for _ in 0..<1000 {
                 try Task.checkCancellation()
                 if stopFlag.isStopped { return }
-                let request = try await nextRequest(socket, buffered: buffer, connectionID: connectionID)
-                buffer = request.1
-                guard let request = request.0 else { return }
+                guard let request = try await nextRequest(socket, reader: reader, connectionID: connectionID) else { return }
                 let id = request.requestID
-                let start = monotonicNS()
-                let executor = RequestExecutor(pool: pool, recorder: trace, requestID: id)
+                let start = tracing ? monotonicNS() : 0
+                let observed = request.path != "/__pulse/trace"
+                let executor = RequestExecutor(pool: pool, recorder: observed ? trace : silentTrace, requestID: id)
                 let response = try await withTaskExecutorPreference(executor) {
                     try await withThrowingTaskGroup(of: HTTPResponse.self) { group in
                         group.addTask { try await self.handler(request) }
@@ -137,38 +143,37 @@ public final class HTTPServer: Sendable {
                         return try await group.next()!
                     }
                 }
-                let handlerEnd = monotonicNS()
-                trace.span("Handler (wall)", category: "handler", start: start, end: handlerEnd, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID])
+                let handlerEnd = tracing ? monotonicNS() : 0
+                if observed { trace.span("Handler (wall)", category: "handler", start: start, end: handlerEnd, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID]) }
                 let close = request.headers["connection"]?.lowercased().split(separator: ",").contains(where: { $0.trimmingCharacters(in: .whitespaces) == "close" }) == true
                 try await write(response, socket: socket, head: request.method == "HEAD", close: close)
-                trace.span("Response write (wall)", category: "io", start: handlerEnd, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID])
-                trace.span("Request (wall)", category: "request", start: start, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID, "path": request.path])
+                if observed { trace.span("Response write (wall)", category: "io", start: handlerEnd, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID])
+                trace.span("Request (wall)", category: "request", start: start, lane: "request:\(id)", args: ["requestID": id, "connectionID": connectionID, "path": request.path, "method": request.method, "status": String(response.status)]) }
                 if close { return }
             }
         } catch {
             // Close on malformed framing, cancellation or timeout; never reuse an ambiguous stream.
         }
     }
-    private func nextRequest(_ socket: AsyncSocket, buffered: Data, connectionID: String) async throws -> (HTTPRequest?, Data) {
-        try await withThrowingTaskGroup(of: RequestRead.self) { group in
+    // One connection task owns this reader; only its read child mutates it. The deadline child never accesses it.
+    private final class RequestReader: @unchecked Sendable { var decoder = HTTPDecoder() }
+    private func nextRequest(_ socket: AsyncSocket, reader: RequestReader, connectionID: String) async throws -> HTTPRequest? {
+        try await withThrowingTaskGroup(of: HTTPRequest?.self) { group in
             group.addTask {
-                var buffer = buffered
                 while true {
-                    if let request = try HTTPParser.extract(from: &buffer) { return RequestRead(request: request, rest: buffer) }
-                    let start = monotonicNS()
+                    if let request = try reader.decoder.next() { return request }
+                    let start = self.trace.capacity > 0 ? monotonicNS() : 0
                     let data = try await socket.read()
                     self.trace.span("Socket read (wall)", category: "io", start: start, lane: "connection:\(connectionID)", args: ["connectionID": connectionID])
-                    if data.isEmpty { return RequestRead(request: nil, rest: Data()) }
-                    buffer.append(data)
+                    if data.isEmpty { return nil }
+                    reader.decoder.append(data)
                 }
             }
             group.addTask { try await Task.sleep(for: .seconds(self.timeout)); throw HTTPError.timeout }
             defer { group.cancelAll() }
-            let result = try await group.next()!
-            return (result.request, result.rest)
+            return try await group.next()!
         }
     }
-    private struct RequestRead: Sendable { let request: HTTPRequest?; let rest: Data }
     private func write(_ response: HTTPResponse, socket: AsyncSocket, head: Bool, close: Bool) async throws {
         let reasons = [200: "OK", 201: "Created", 202: "Accepted", 204: "No Content", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 409: "Conflict", 422: "Unprocessable Content", 500: "Internal Server Error", 503: "Service Unavailable"]
         var header = "HTTP/1.1 \(response.status) \(reasons[response.status] ?? "Response")\r\nContent-Length: \(response.body.count)\r\nConnection: \(close ? "close" : "keep-alive")\r\n"
@@ -185,6 +190,10 @@ public final class HTTPServer: Sendable {
                     var packet = headerData
                     packet.append(response.body)
                     try await socket.write(packet)
+                    return
+                }
+                if !head && response.body.count <= 64 * 1024 * 1024 - headerData.count {
+                    try await socket.write(buffers: [headerData, response.body])
                     return
                 }
                 try await socket.write(headerData)

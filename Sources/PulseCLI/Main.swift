@@ -1,7 +1,6 @@
 import Foundation
 import Dispatch
 import PulseCore
-import PulseLoad
 #if canImport(Glibc)
 import Glibc
 #else
@@ -44,21 +43,6 @@ struct Arguments {
     }
 }
 
-func save(_ report: RunReport, to path: String) throws {
-    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-    let url = URL(fileURLWithPath: path)
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try encoder.encode(report).write(to: url, options: .atomic)
-}
-func printSummary(_ report: RunReport) {
-    let s = report.summary
-    print("Run \(report.id)")
-    print("Scheduled \(s.scheduled) | Started \(s.started) | Completed \(s.completed) | Failed \(s.failed) | Dropped \(s.dropped)")
-    print(String(format: "Actual start rate %.1f req/s | p50 %.2f ms | p95 %.2f ms | p99 %.2f ms", s.achievedRPS, s.latency.p50, s.latency.p95, s.latency.p99))
-    print(String(format: "Schedule-to-completion p99 %.2f ms | Scheduler lag p99 %.2f ms", s.scheduleToCompletion.p99, s.schedulerLag.p99))
-    if let error = report.traceError { print("Trace unavailable: \(error)") }
-}
-
 @main struct PulseMain {
     static func main() {
         // Keep the process entry thread alive. This wait is NOT on Swift's cooperative pool.
@@ -70,7 +54,6 @@ func printSummary(_ report: RunReport) {
         do {
             let arguments = try Arguments(Array(CommandLine.arguments.dropFirst()))
             if arguments.command == "help" || arguments.command == "--help" { print(help); return }
-            if arguments.command == "report" { try await execute(arguments); return }
             ProcessSignals.install()
             let work = Task { try await execute(arguments) }
             let watcher = Task {
@@ -89,27 +72,6 @@ func printSummary(_ report: RunReport) {
     }
     static func execute(_ args: Arguments) async throws {
         switch args.command {
-        case "attack":
-            try args.allow(["--url", "--method", "--rate", "--duration", "--concurrency", "--timeout", "--header", "--body", "--output", "--trace-url", "--max-lag-ms", "--max-samples", "--max-response-bytes"])
-            var config = LoadConfiguration(url: args.string("--url", "http://127.0.0.1:8080/"))
-            config.method = args.string("--method", "GET").uppercased()
-            config.rate = try args.number("--rate", 100); config.duration = try args.number("--duration", 10)
-            config.concurrency = try args.integer("--concurrency", 128); config.timeout = try args.number("--timeout", 5)
-            config.maxLagMS = try args.number("--max-lag-ms", 100); config.maxSamples = try args.integer("--max-samples", 20000)
-            config.maxResponseBytes = try args.integer("--max-response-bytes", 16_777_216)
-            config.traceURL = args.flags["--trace-url"]?.last
-            for header in args.flags["--header"] ?? [] {
-                guard let colon = header.firstIndex(of: ":") else { throw CLIError.usage("Header must be Name: value") }
-                config.headers[String(header[..<colon])] = String(header[header.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            }
-            let body = try args.flags["--body"]?.last.map { try Data(contentsOf: URL(fileURLWithPath: $0)) }
-            let report = try await LoadEngine.run(configuration: config, body: body)
-            try save(report, to: args.string("--output", "runs/\(report.id).json")); printSummary(report)
-        case "report":
-            try args.allow(["--input"])
-            let path = args.string("--input", "")
-            guard !path.isEmpty else { throw CLIError.usage("report requires --input file.json") }
-            printSummary(try JSONDecoder().decode(RunReport.self, from: Data(contentsOf: URL(fileURLWithPath: path))))
         case "serve":
             try args.allow(["--port", "--host", "--workers", "--max-connections", "--trace-capacity", "--timeout"])
             let port = try args.integer("--port", 8080)
@@ -120,7 +82,7 @@ func printSummary(_ report: RunReport) {
             guard (1...65535).contains(port), (1...256).contains(workers), (1...100000).contains(maximum), (0...1_000_000).contains(capacity), timeout > 0, timeout <= 300 else { throw CLIError.usage("Invalid server limits") }
             let recorder = TraceRecorder(capacity: capacity)
             let server = try HTTPServer(address: args.string("--host", "127.0.0.1"), port: UInt16(port), workers: workers, maxConnections: maximum, requestTimeout: timeout, trace: recorder) { request in
-                if request.path == "/__pulse/trace" { return try .json(recorder.snapshot()) }
+                if request.path == "/__pulse/trace" { return try TraceEndpoint.response(to: request, recorder: recorder) }
                 if request.path == "/echo" { return HTTPResponse(headers: ["Content-Type": "application/octet-stream"], body: request.body) }
                 if request.path == "/work" {
                     let items = URLComponents(string: request.target)?.queryItems ?? []
@@ -154,25 +116,23 @@ func printSummary(_ report: RunReport) {
             print("SwiftPulse server http://\(args.string("--host", "127.0.0.1")):\(port) (\(workers) workers)")
             try await server.run()
         case "studio":
-            try args.allow(["--port", "--ui-dir", "--reports"])
+            try args.allow(["--port", "--ui-dir", "--target"])
             let port = try args.integer("--port", 9090)
             guard (1...65535).contains(port) else { throw CLIError.usage("Invalid port") }
-            let controller = try StudioController(directory: args.string("--reports", "runs"), uiDirectory: args.string("--ui-dir", "Studio"), port: port)
+            let controller = try StudioController(target: args.string("--target", "http://127.0.0.1:8080"), uiDirectory: args.string("--ui-dir", "Studio"))
             let server = try HTTPServer(port: UInt16(port)) { request in try await controller.handle(request) }
             print("SwiftPulse Studio http://127.0.0.1:\(port)")
-            do { try await server.run() } catch { await controller.stop(); throw error }
-            await controller.stop()
+            defer { controller.close() }
+            try await server.run()
         default: throw CLIError.usage("Unknown command: \(args.command). Use pulse help.")
         }
     }
     static let help = """
-    SwiftPulse — nonblocking Swift server, load generator & concurrency studio
+    SwiftPulse — nonblocking Swift server with execution observability
     pulse serve [--port 8080] [--workers 4] [--trace-capacity 100000]
-    pulse attack --url http://127.0.0.1:8080/work --rate 100 --duration 10s
-                 [--concurrency 128] [--timeout 5s] [--method POST] [--body file]
-                 [--header 'Name: value'] [--trace-url http://127.0.0.1:8080/__pulse/trace]
-                 [--output runs/result.json] [--max-lag-ms 100] [--max-samples 20000]
-    pulse report --input runs/result.json
-    pulse studio [--port 9090] [--ui-dir Studio] [--reports runs]
+                [--host 127.0.0.1] [--max-connections 1024] [--timeout 15s]
+    pulse studio [--port 9090] [--target http://127.0.0.1:8080] [--ui-dir Studio]
+
+    Load testing is a separate package: Packages/PulseLoad (pulse-load).
     """
 }

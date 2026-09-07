@@ -1,5 +1,4 @@
 import Foundation
-import PulseCore
 
 public struct LoadConfiguration: Codable, Sendable {
     public var url: String
@@ -12,7 +11,6 @@ public struct LoadConfiguration: Codable, Sendable {
     public var maxLagMS: Double = 100
     public var maxSamples: Int = 20000
     public var maxResponseBytes: Int = 16_777_216
-    public var traceURL: String? = nil
     public init(url: String) { self.url = url }
     public func validate() throws {
         guard let parsed = URL(string: url), ["http", "https"].contains(parsed.scheme?.lowercased() ?? ""), parsed.host != nil,
@@ -86,8 +84,6 @@ public struct RunReport: Codable, Sendable {
     public let summary: LoadSummary
     public let buckets: [TimeBucket]
     public let requests: [RequestSample]
-    public var serverTrace: TraceDocument?
-    public var traceError: String?
 }
 
 /// Fixed memory; nearest-rank estimates use upper bucket edges (<=2% relative quantization above 1us).

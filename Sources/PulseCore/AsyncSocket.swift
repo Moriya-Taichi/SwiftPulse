@@ -32,7 +32,10 @@ public final class AsyncSocket: @unchecked Sendable {
     private var acceptContinuation: CheckedContinuation<AsyncSocket, any Error>?
     private var writeContinuation: CheckedContinuation<Void, any Error>?
     private var readSize = 16384
-    private var output = Data()
+    private var readBuffer: UnsafeMutableRawPointer?
+    private var readCapacity = 0
+    private var output: [Data] = []
+    private var outputIndex = 0
     private var offset = 0
 
     public init(owningNonblockingDescriptor fd: Int32) {
@@ -47,6 +50,7 @@ public final class AsyncSocket: @unchecked Sendable {
         writeSource.setEventHandler { [weak self] in self?.tryWrite() }
     }
     deinit {
+        readBuffer?.deallocate()
         if !closed {
             if !reading { readSource.resume() }
             if !writing { writeSource.resume() }
@@ -74,7 +78,7 @@ public final class AsyncSocket: @unchecked Sendable {
         readContinuation?.resume(throwing: SocketError.closed); readContinuation = nil
         acceptContinuation?.resume(throwing: SocketError.closed); acceptContinuation = nil
         writeContinuation?.resume(throwing: SocketError.closed); writeContinuation = nil
-        output = Data()
+        output = []
     }
     public func read(maxBytes: Int = 16384) async throws -> Data {
         guard (1...1_048_576).contains(maxBytes) else { throw SocketError.limitExceeded }
@@ -117,10 +121,17 @@ public final class AsyncSocket: @unchecked Sendable {
             acceptContinuation = nil; stopReading(); continuation.resume(throwing: SocketError.system(error)); return
         }
         guard let continuation = readContinuation else { stopReading(); return }
-        var data = Data(count: readSize)
-        let count = data.withUnsafeMutableBytes { pulse_receive(fd, $0.baseAddress!, $0.count) }
+        // Reuse uninitialized receive storage. EAGAIN no longer allocates and
+        // zero-fills a Data buffer; only bytes actually read are copied out.
+        if readCapacity < readSize {
+            readBuffer?.deallocate()
+            readBuffer = .allocate(byteCount: readSize, alignment: MemoryLayout<UInt64>.alignment)
+            readCapacity = readSize
+        }
+        let count = pulse_receive(fd, readBuffer!, readSize)
         if count >= 0 {
-            data.count = count; readContinuation = nil; stopReading(); continuation.resume(returning: data); return
+            let data = Data(bytes: readBuffer!, count: count)
+            readContinuation = nil; stopReading(); continuation.resume(returning: data); return
         }
         let error = pulse_errno()
         if pulse_interrupted(error) != 0 { queue.async { self.tryRead() }; return }
@@ -129,27 +140,38 @@ public final class AsyncSocket: @unchecked Sendable {
     }
     public func write(_ data: Data) async throws {
         guard data.count <= 1_048_576 else { throw SocketError.limitExceeded }
+        try await write(buffers: [data])
+    }
+    /// Retain existing buffers through one continuation; no concatenation or per-chunk executor hops.
+    public func write(buffers: [Data]) async throws {
+        guard buffers.count <= 1024 else { throw SocketError.limitExceeded }
+        var total = 0
+        for buffer in buffers {
+            guard buffer.count <= 64 * 1024 * 1024 - total else { throw SocketError.limitExceeded }
+            total += buffer.count
+        }
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 queue.async {
                     guard !self.closed else { continuation.resume(throwing: SocketError.closed); return }
                     guard self.writeContinuation == nil else { continuation.resume(throwing: SocketError.concurrentOperation); return }
-                    self.output = data; self.offset = 0; self.writeContinuation = continuation; self.tryWrite()
+                    self.output = buffers; self.outputIndex = 0; self.offset = 0; self.writeContinuation = continuation; self.tryWrite()
                 }
             }
         } onCancel: { self.close() }
     }
     private func finishWrite(_ error: (any Error)? = nil) {
         if writing { writeSource.suspend(); writing = false }
-        let continuation = writeContinuation; writeContinuation = nil; output = Data()
+        let continuation = writeContinuation; writeContinuation = nil; output = []
         if let error { continuation?.resume(throwing: error) } else { continuation?.resume() }
     }
     private func tryWrite() {
         guard !closed, writeContinuation != nil else { return }
         var budget = 262144
-        while offset < output.count {
-            let count = output.withUnsafeBytes { pulse_send(fd, $0.baseAddress!.advanced(by: offset), min($0.count - offset, 65536)) }
+        while outputIndex < output.count {
+            if offset == output[outputIndex].count { outputIndex += 1; offset = 0; continue }
+            let count = output[outputIndex].withUnsafeBytes { pulse_send(fd, $0.baseAddress!.advanced(by: offset), min($0.count - offset, 65536)) }
             if count > 0 {
                 offset += count; budget -= count
                 if budget <= 0 { queue.async { self.tryWrite() }; return }

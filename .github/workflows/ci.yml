@@ -14,6 +14,13 @@ jobs:
       - run: node --test Tests/StudioTests/*.test.mjs
       - run: swift build -c release
       - run: python3 scripts/integration.py --binary .build/release/pulse
+      - name: Verify standalone load package
+        run: |
+          cp -R Packages/PulseLoad /tmp/PulseLoad
+          cd /tmp/PulseLoad
+          swift test
+          swift build -c release
+          python3 scripts/integration.py
       - name: Install browser test dependencies
         run: npm install --no-save --package-lock=false playwright@1.55.0 && npx playwright install --with-deps chromium
       - run: python3 scripts/browser_integration.py --binary .build/release/pulse
@@ -30,3 +37,10 @@ jobs:
       - run: swift test
       - run: swift build -c release
       - run: python3 scripts/integration.py --binary .build/release/pulse
+      - name: Verify standalone load package
+        run: |
+          cp -R Packages/PulseLoad "$RUNNER_TEMP/PulseLoad"
+          cd "$RUNNER_TEMP/PulseLoad"
+          swift test
+          swift build -c release
+          python3 scripts/integration.py

@@ -1,94 +1,62 @@
 import Foundation
-import Dispatch
 import PulseCore
-import PulseLoad
-
-private enum DiskIO {
-    static let queue = DispatchQueue(label: "pulse.disk")
-    static func run<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async { continuation.resume(with: Result(catching: operation)) }
-        }
-    }
-}
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 actor StudioController {
-    private let directory: String
-    private let port: Int
+    private let target: URL
     private let assets: [String: HTTPResponse]
-    private var reports: [StoredRun] = []
-    private var task: Task<Void, Never>?
-    private var activeID: String?
-    private var summary: LoadSummary?
-    private var error: String?
-    init(directory: String, uiDirectory: String, port: Int) throws {
-        self.directory = directory; self.port = port
+    private let client = TraceClient()
+    private var cached: (key: String, at: UInt64, response: HTTPResponse)?
+    private var fetching: (key: String, task: Task<HTTPResponse, Never>)?
+    init(target: String, uiDirectory: String) throws {
+        guard let url = URL(string: target), ["http", "https"].contains(url.scheme), url.host != nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else { throw CLIError.usage("--target must be an HTTP(S) server origin") }
+        self.target = url.appendingPathComponent("__pulse/trace")
         var assets: [String: HTTPResponse] = [:]
-        for (name, mime) in [("index.html", "text/html"), ("app.js", "text/javascript"), ("model.mjs", "text/javascript"), ("styles.css", "text/css"), ("demo-run.json", "application/json")] {
-            let url = URL(fileURLWithPath: uiDirectory).appendingPathComponent(name)
-            if let data = try? Data(contentsOf: url) {
-                assets["/\(name)"] = HTTPResponse(headers: ["Content-Type": "\(mime); charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"], body: data)
-            }
+        for (name, mime) in [("index.html", "text/html"), ("app.js", "text/javascript"), ("model.mjs", "text/javascript"), ("styles.css", "text/css"), ("demo-trace.json", "application/json")] {
+            let data = try Data(contentsOf: URL(fileURLWithPath: uiDirectory).appendingPathComponent(name))
+            assets["/\(name)"] = HTTPResponse(headers: ["Content-Type": "\(mime); charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"], body: data)
         }
-        guard let index = assets["/index.html"] else { throw CLIError.usage("Studio/index.html not found; use --ui-dir") }
-        assets["/"] = index; self.assets = assets
-        if let files = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: directory), includingPropertiesForKeys: [.contentModificationDateKey]) {
-            for file in files.filter({ $0.pathExtension == "json" }).sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).prefix(20) {
-                if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 64 * 1024 * 1024,
-                   let data = try? Data(contentsOf: file), let report = try? JSONDecoder().decode(RunReport.self, from: data) {
-                    reports.append(StoredRun(report, path: file.path))
-                }
-            }
-            reports.sort { $0.index.startedAtEpochMS > $1.index.startedAtEpochMS }
-        }
+        assets["/"] = assets["/index.html"]; self.assets = assets
     }
-    func stop() async {
-        let running = task; running?.cancel(); await running?.value
-    }
-    private struct Status: Encodable { let activeID: String?; let summary: LoadSummary?; let error: String? }
-    private struct RunIndex: Encodable, Sendable { let id: String; let url: String; let startedAtEpochMS: Double; let summary: LoadSummary }
-    private struct StoredRun: Sendable {
-        let index: RunIndex
-        let path: String
-        init(_ report: RunReport, path: String) {
-            index = RunIndex(id: report.id, url: report.configuration.url, startedAtEpochMS: report.startedAtEpochMS, summary: report.summary)
-            self.path = path
-        }
-    }
+    nonisolated func close() { client.close() }
     func handle(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if request.method == "GET", let asset = assets[request.path] { return asset }
-        if request.path == "/api/status", request.method == "GET" { return try .json(Status(activeID: activeID, summary: summary, error: error)) }
-        if request.path == "/api/runs", request.method == "GET" {
-            return try .json(reports.map(\.index))
+        guard request.method == "GET" else { return .text("Method not allowed", status: 405) }
+        if let asset = assets[request.path] { return asset }
+        if request.path == "/api/status" { return try .json(["target": target.absoluteString]) }
+        guard request.path == "/api/trace" else { return .text("Not found", status: 404) }
+        let items = URLComponents(string: request.target)?.queryItems ?? []
+        var query: [URLQueryItem] = []
+        if let value = items.first(where: { $0.name == "after" })?.value {
+            guard UInt64(value) != nil else { return .text("Invalid cursor", status: 400) }
+            query.append(URLQueryItem(name: "after", value: value))
         }
-        if request.path.hasPrefix("/api/runs/"), request.method == "GET" {
-            let id = String(request.path.dropFirst("/api/runs/".count))
-            guard let stored = reports.first(where: { $0.index.id == id }) else { return .text("Not found", status: 404) }
-            let data = try await DiskIO.run { try Data(contentsOf: URL(fileURLWithPath: stored.path)) }
-            return HTTPResponse(headers: ["Content-Type": "application/json"], body: data)
+        if let value = items.first(where: { $0.name == "session" })?.value {
+            guard value.count <= 128 else { return .text("Invalid session", status: 400) }
+            query.append(URLQueryItem(name: "session", value: value))
         }
-        if request.method == "POST", ["/api/attack", "/api/stop"].contains(request.path) {
-            if let origin = request.headers["origin"], !["http://127.0.0.1:\(port)", "http://localhost:\(port)"].contains(origin) { return .text("Invalid origin", status: 403) }
-            guard request.headers["content-type"]?.hasPrefix("application/json") == true else { return .text("Expected JSON", status: 400) }
-            if request.path == "/api/stop" { task?.cancel(); return .text("Stopping") }
-            guard activeID == nil else { return .text("A run is already active", status: 409) }
-            let config: LoadConfiguration
-            do { config = try JSONDecoder().decode(LoadConfiguration.self, from: request.body); try config.validate() }
-            catch { return .text("Invalid load configuration: \(error)", status: 422) }
-            let id = UUID().uuidString
-            activeID = id; summary = nil; error = nil
-            task = Task {
-                do {
-                    let result = try await LoadEngine.run(configuration: config, id: id) { progress in await self.update(progress) }
-                    try await DiskIO.run { try save(result, to: "\(self.directory)/\(id).json") }
-                    self.reports.insert(StoredRun(result, path: "\(self.directory)/\(id).json"), at: 0)
-                    if self.reports.count > 20 { self.reports.removeLast() }
-                } catch { self.error = String(describing: error) }
-                self.activeID = nil; self.task = nil
+        var components = URLComponents(url: target, resolvingAgainstBaseURL: false)!
+        components.queryItems = query.isEmpty ? nil : query
+        let url = components.url!, key = url.absoluteString
+        if let cached, cached.key == key, monotonicNS() - cached.at < 500_000_000 { return cached.response }
+        if let fetching {
+            if fetching.key == key { return await fetching.task.value }
+            return .text("Observer busy; retry next poll", status: 503)
+        }
+        let client = client
+        let task = Task<HTTPResponse, Never> {
+            let result = await client.perform(URLRequest(url: url))
+            guard result.status == 200, result.error == nil, let data = result.body else {
+                return .text("Trace unavailable. Check the target server and /__pulse/trace route.", status: 503)
             }
-            return try .json(["id": id], status: 202)
+            return HTTPResponse(headers: ["Content-Type": "application/json", "Cache-Control": "no-store"], body: data)
         }
-        return .text("Not found", status: 404)
+        fetching = (key, task)
+        let response = await task.value
+        fetching = nil; cached = (key, monotonicNS(), response)
+        return response
     }
-    private func update(_ progress: LoadSummary) { summary = progress }
 }

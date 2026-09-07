@@ -16,7 +16,7 @@ processes=[]
 with tempfile.TemporaryDirectory(prefix='pulse-browser-') as reports:
     try:
         processes.append(subprocess.Popen([binary,'serve','--port','8080']))
-        processes.append(subprocess.Popen([binary,'studio','--port','9090','--reports',reports,'--ui-dir',str(ROOT/'Studio')]))
+        processes.append(subprocess.Popen([binary,'studio','--port','9090','--target','http://127.0.0.1:8080','--ui-dir',str(ROOT/'Studio')]))
         ready('http://127.0.0.1:8080/health')
         ready('http://127.0.0.1:9090/api/status')
         subprocess.run(['node','scripts/browser-test.mjs'],cwd=ROOT,check=True,timeout=90)

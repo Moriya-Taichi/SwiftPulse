@@ -1,28 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {traceEvents,visibleRange,parseHeaders,validateReport,compareReports} from '../../Studio/model.mjs';
-
-test('separates executor slices from request wall-time spans and other runs',()=>{
-  const report={id:'run',serverTrace:{traceEvents:[
-    {name:'job',ph:'X',cat:'executor',ts:100,dur:20,tid:'worker-0',args:{requestID:'run:1'}},
-    {name:'handler',ph:'X',cat:'handler',ts:100,dur:200,tid:'request:run:1',args:{requestID:'run:1'}},
-    {name:'job',ph:'X',cat:'executor',ts:100,dur:20,tid:'worker-0',args:{requestID:'other:1'}},
-    {name:'invalid',ph:'X',cat:'executor',ts:NaN,dur:20,tid:'worker-0',args:{requestID:'run:1'}}
-  ]}};
-  assert.equal(traceEvents(report,'workers').length,1);
-  assert.equal(traceEvents(report,'requests')[0].dur,200);
-  assert.equal(traceEvents(report,'workers','run:2').length,0);
-});
-test('zoom and pan use the actual trace bounds',()=>{
-  assert.deepEqual(visibleRange([{ts:100,dur:400}],2,100),{start:300,end:500});
-  assert.deepEqual(visibleRange([],2,100),{start:0,end:1});
-});
-test('preserves colons inside header values',()=>{
-  assert.deepEqual(parseHeaders('Accept: text/plain\nX-URL: http://localhost:80/'),{'Accept':'text/plain','X-URL':'http://localhost:80/'});
-  assert.throws(()=>parseHeaders('broken'));
-});
-test('rejects unrelated files',()=>assert.throws(()=>validateReport({traceEvents:[]})));
-test('comparison does not invent percentages with zero baseline',()=>{
-  const result=compareReports({summary:{latency:{p99:20},achievedRPS:100}},{summary:{latency:{p99:0},achievedRPS:50}});
-  assert.equal(result.p99,null);assert.equal(result.rate,100);
-});
+import {validateTrace,mergeTrace,requestRows,maxOverlap,traceEvents,visibleRange} from '../../Studio/model.mjs';
+const event=(sequence,cat='request')=>({name:'request',cat,ph:'X',ts:sequence*10,dur:20,tid:cat==='executor'?'worker-0':'request:a',args:{requestID:'a',path:'/health',queueUS:'100'},sequence});
+const doc=(seqs,sessionID='session')=>({kind:'swiftpulse.trace',schemaVersion:1,epochMS:100,sessionID,nextCursor:seqs.at(-1)??0,traceEvents:seqs.map(n=>event(n))});
+test('rolling delta deduplicates and bounds memory',()=>{const a=doc([1,2,3]);const b=mergeTrace(a,doc([3,4,5]),3);assert.deepEqual(b.trace.traceEvents.map(e=>e.sequence),[3,4,5]);assert.equal(b.skipped,0);});
+test('gaps and server restarts are explicit',()=>{assert.equal(mergeTrace(doc([1]),doc([4,5])).skipped,2);const restarted=mergeTrace(doc([5,6]),doc([1,2],'new'));assert.equal(restarted.restarted,true);assert.equal(restarted.trace.traceEvents.length,2);});
+test('legacy snapshots replace instead of accumulating duplicates',()=>{const legacy=doc([1,2]);delete legacy.sessionID;delete legacy.nextCursor;legacy.traceEvents.forEach(e=>delete e.sequence);assert.equal(mergeTrace(legacy,legacy).trace.traceEvents.length,2);});
+test('trace validation rejects malformed values and load reports',()=>{assert.throws(()=>validateTrace({kind:'pulseload.run'}));const bad=doc([1]);bad.traceEvents[0].dur=-1;assert.throws(()=>validateTrace(bad));const cursor=doc([1]);cursor.nextCursor=Infinity;assert.throws(()=>validateTrace(cursor));});
+test('correlation works without a load-test run ID',()=>{const trace=doc([1]);trace.traceEvents.push(event(2,'executor'));assert.equal(requestRows(trace,'health')[0].queueMS,.1);assert.equal(traceEvents(trace,'workers','a').length,1);assert.equal(requestRows(trace,'missing').length,0);});
+test('half-open intervals do not double-count touching requests',()=>{assert.equal(maxOverlap([{start:0,end:10},{start:10,end:20}]),1);assert.equal(maxOverlap([{start:0,end:20},{start:10,end:30}]),2);});
+test('zoom stays in measured time range',()=>{assert.deepEqual(visibleRange([{ts:0,dur:100}],2,100),{start:50,end:100});});

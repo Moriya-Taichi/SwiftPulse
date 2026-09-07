@@ -1,53 +1,50 @@
 # Design
 
-SwiftPulse consists of `PulseCore`, `PulseLoad`, the `pulse` executable and a dependency-free browser UI. Swift's concurrency runtime remains responsible for Tasks and actor isolation; this project does not implement a replacement Swift runtime.
+SwiftPulse contains `PulseCore`, the `pulse` server/observer executable and Studio's static browser assets. `Packages/PulseLoad` is a separate Swift package with no dependency in either direction. It can be moved to its own repository without modifying its manifest or sources.
 
-## Transport and ownership
+## Execution and I/O
 
-The C layer is a small portable wrapper around BSD socket functions, with nonblocking and close-on-exec flags. Linux sends use `MSG_NOSIGNAL`; Darwin sockets use `SO_NOSIGPIPE`. DispatchSource supplies OS readiness events. There is no polling loop over sockets and no thread per connection.
+BSD sockets are nonblocking. Dispatch read/write sources notify a per-socket serial queue after EAGAIN; a cooperative Swift thread never waits for socket readiness. A socket permits one pending read/accept and one pending write. Cancellation closes the connection and resumes pending continuations. Its descriptor closes only after both Dispatch sources acknowledge cancellation.
 
-Each socket has a serial state queue. Read and write sources remain suspended unless an operation encounters EAGAIN. Each source cancellation handler participates in descriptor lifetime accounting, so a descriptor is not closed/reused before both sources have acknowledged cancellation. A cancelled read or write closes the entire socket and resumes all pending continuations exactly once. Concurrent reads and concurrent writes are rejected rather than silently racing.
+Receive storage is allocated lazily, grows only as required by a read, and is reused until the socket is destroyed. The default read is 16 KiB. Only initialized bytes returned by `recv` are copied into `Data`. This removes allocation and zero-filling on unsuccessful readiness probes, in exchange for retaining up to the largest read buffer on an open socket (maximum 1 MiB through the low-level API).
 
-The server caps connection count before creating a handler Task. Header and request-body buffering are bounded. Each read, handler and response write has a deadline; task cancellation propagates to the relevant socket. A handler that ignores cooperative cancellation cannot be forcibly terminated. Responses use 64 KiB writes and socket write operations are capped at 1 MiB. HTTP requests are processed in connection order.
+Small HTTP responses coalesce their header and body. Larger responses up to 64 MiB retain the existing header/body buffers through one asynchronous write operation. The queue advances through them without allocating a new `Data` or resuming a task for every chunk. The send loop still checks readiness, handles short writes and yields after a 256 KiB budget. It sends at most 64 KiB per syscall. Responses above this bound use the existing chunked *internal write loop*; this is not HTTP chunked transfer encoding.
 
-The current transport is readiness-based. Direct epoll/kqueue or io_uring backends should only be introduced after measuring benefits against this baseline. TLS, HTTP/2 and a general streaming body abstraction are not claimed in this version.
+HTTPDecoder retains a header scan offset and parsed head while waiting for the body. Each header byte is examined a bounded number of times, and the header is parsed once. Consumed pipeline input advances an offset; compaction occurs between requests at 64 KiB. Header size (16 KiB), body size (1 MiB), Host, Content-Length and ambiguous framing checks remain enforced.
 
-## Managed execution
+Each connection has at most one handler in flight; responses preserve request order. The connection limit and read/handler/write deadlines are retained. Handler cancellation is cooperative: a handler that ignores cancellation can delay shutdown. A request ID is stable for the lifetime of its `HTTPRequest` value.
 
-`RequestExecutor` uses the public Swift 6 `TaskExecutor` API. An instance per request retains an explicit request ID and submits jobs to a shared set of serial worker queues. This avoids guessing Task identities from thread-local state. Default actor behavior and explicitly selected actor executors retain their Swift semantics.
+## Managed executors
 
-Workers are logical queue lanes, not CPU cores or pinned threads. Scheduling is round-robin, not work stealing. This is a deliberately small starting point whose locality, fairness, queueing cost and allocation overhead must be benchmarked before more complex scheduling is justified.
+`RequestExecutor` is request-scoped, with a fixed pool of serial DispatchQueue lanes. Each enqueued Swift job is assigned round-robin. A suspended job releases its lane; other work may proceed. Swift Concurrency continues to implement Tasks and actor isolation.
 
-## What the trace can establish
+Executor slices record the interval around `UnownedJob.runSynchronously`, queue delay and OS thread ID. These are wall-time intervals, including OS preemption. They are not CPU utilization samples. Custom actor executors and unrelated runtime work are outside this recorder's scope. Task executor preferences propagate into structured child tasks, while actor isolation remains in effect.
 
-- Managed executor job: start and return time, request ID, logical worker and actual OS thread ID. This measures a wall-time slice, potentially including OS descheduling.
-- Queue wait: enqueue-to-job-start time, recorded separately in each job's arguments.
-- Handler, socket read and response write: elapsed wall time across suspension/resumption, not CPU time.
-- Unrelated executor jobs, external actors and kernel scheduling: not observed.
+## Continuous observation
 
-The UI never treats overlapping HTTP request spans as proof of simultaneous CPU execution. It filters imported server events by the load run's explicit request-ID prefix and does not align monotonic clocks from different hosts. Traces retain their own relative timeline. Records use Chrome Trace Event complete events (`ph: X`, microseconds).
+TraceRecorder uses a bounded ring. A full ring overwrites its oldest span instead of stopping recording. Every span receives an increasing sequence number; one recorder has one session ID and monotonic clock origin. Total overwritten spans are reported as `droppedEvents`.
 
-The recorder has a fixed event capacity and a dropped-event counter. Disabled recording avoids building executor event metadata. The initial recorder uses a mutex and allocates event metadata while enabled; it is not a lock-free or zero-overhead implementation. Sampling and per-worker ring buffers are future optimizations, not existing capabilities.
+- `snapshot(after:limit:)` returns an exclusive cursor window, choosing the most recent events if a consumer has fallen behind.
+- Snapshot selection copies the requested spans under the lock. JSON formatting occurs after releasing the lock. A reader never shares the mutable ring's backing array, avoiding whole-ring copy-on-write on the next append.
+- Executor queue delays and thread IDs are stored as numeric values. Dictionary/string conversion happens at export time.
+- Disabled tracing does not evaluate metadata autoclosures.
+- `TraceEndpoint.response` caps each HTTP response at 5,000 spans. `/__pulse/trace?after=N&session=ID` requests a delta. A changed session resets the cursor domain.
+- The observer route is excluded from its own handler/request/executor spans. Low-level socket reads remain framework I/O events; they are not included in request or worker metrics.
 
-## Load generation and measurement
+Studio reads from a fixed target origin supplied on the command line, without accepting arbitrary fetch destinations from the browser. The proxy does not follow redirects, limits the body to 16 MiB and coalesces concurrent requests for the same cursor. Browser polling is once per second, with a 20,000-event retention bound. It reports cursor gaps instead of silently presenting missing events as a complete trace.
 
-The scheduler creates slots at `origin + sequence / rate` independently of prior responses. It reserves a bounded in-flight slot before creating a child Task. If the generator is late or at capacity, the planned slot is counted as dropped, not delayed indefinitely. The last slot is followed by the remainder of the requested issuance period, and outstanding requests then drain.
+The UI derives completed request intervals, p95 wall time, managed-job queue p95 and interval overlap from the retained events. Statistics are scoped to this window, exclude unfinished requests and may be incomplete if older related spans were overwritten. They are not lifetime counters. Request/worker correlation does not require a load-test run ID.
 
-The transport uses URLSession (FoundationNetworking on Linux), not SwiftNIO. DNS, TLS, connection pooling and protocol negotiation are delegated to it. Bodies are counted and discarded by a streaming delegate, with a configurable maximum. Request status, error, scheduler lag, transport wall time and schedule-to-completion are recorded. Redirects are not followed.
+## Independent load testing
 
-Aggregates include every completed request. The fixed-size logarithmic histogram uses nearest-rank upper bucket bounds with about 2% relative quantization above 1μs. Raw records stop at the configured sample cap, so the request table is explicitly a retained subset, not an unbiased distribution. Missed slots have no fabricated latency. The result format is versioned but is not Vegeta's format.
+PulseLoad provides its own manifest, signal shim, models, URLSession client, scheduler, CLI and tests. It does not import PulseCore or access source files outside its directory. A Python HTTP server is used for integration verification; CI copies the package outside the repository before building it.
 
-## Performance experiments
+`pulse-load attack`, `report` and `compare` own load generation and result management. The server and Studio expose no load-generation routes. A client may correlate its `X-Pulse-Request-ID` values with a separately captured server trace. JSON report field meanings remain unchanged, with new reports identified as `pulseload.run`.
 
-Build in release mode. Run the generator on a separate machine when evaluating throughput. Record compiler, CPU, OS, transport configuration, endpoint work, keep-alive, rate, duration and in-flight limit. Use the same conditions for baseline/candidate comparisons and warm up before retained runs.
+## Primary references
 
-Measure target/start/completion rates, failures, both kinds of dropped slots, latency percentiles, scheduler lag, resident memory, allocations and context switches. Compare tracing disabled and enabled separately. Do not conclude a throughput advantage from the included localhost integration sample.
+- [Swift SE-0417: Task executor preference](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0417-task-executor-preference.md)
+- [Swift corelibs libdispatch](https://github.com/swiftlang/swift-corelibs-libdispatch)
+- [RFC 9112: HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9112)
 
-Useful workload families: small responses, many idle connections, slow receivers, asynchronous I/O delay, CPU work with fan-out, large bodies, and overload beyond the connection/in-flight limits. Correctness and bounded resource use are prerequisites to optimizing a metric.
-
-## References
-
-- [Swift Task Executor Preference (SE-0417)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0417-task-executor-preference.md)
-- [Vegeta's constant-rate load testing design](https://github.com/tsenart/vegeta)
-- [Perfetto trace import formats](https://perfetto.dev/docs/getting-started/other-formats)
-- [SwiftNIO's async API boundary](https://forums.swift.org/t/new-swiftnio-async-apis/68056)
+These mechanisms do not establish a performance advantage over SwiftNIO or other frameworks. Reproducible before/after results are in [performance.md](performance.md).

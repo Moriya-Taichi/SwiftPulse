@@ -1,35 +1,27 @@
 <!doctype html>
-<html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SwiftPulse Studio</title><link rel="stylesheet" href="styles.css"></head>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SwiftPulse Studio — サーバーの実行状況</title><link rel="stylesheet" href="/styles.css"></head>
 <body>
-<header><a class="brand" href="/" aria-label="SwiftPulse Studio"><svg viewBox="0 0 40 32" width="35" height="28" aria-hidden="true"><path d="M1 17h8l5-12 8 23 5-16 4 5h8" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg><span>SwiftPulse <small>STUDIO</small></span></a><div class="header-right"><span class="status" id="connection">接続確認中</span><a href="https://github.com/Moriya-Taichi/SwiftPulse" target="_blank" rel="noreferrer">GitHub ↗</a></div></header>
-<div class="layout">
-<aside><div class="eyebrow">WORKSPACE</div><h2>負荷テスト</h2><p class="muted">発行レートを決めて、処理の流れを追う。</p>
-<form id="attack-form">
-<label>ターゲットURL<input id="target" type="url" value="http://127.0.0.1:8080/work?delay=20&fanout=2" required></label>
-<div class="two"><label>レート <span>req/s</span><input id="rate" type="number" min="0.1" max="100000" step="any" value="100" required></label><label>期間 <span>秒</span><input id="duration" type="number" min="0.1" max="3600" step="any" value="10" required></label></div>
-<div class="two"><label>同時実行上限<input id="concurrency" type="number" min="1" max="10000" value="128" required></label><label>タイムアウト <span>秒</span><input id="timeout" type="number" min="0.1" max="300" step="any" value="5" required></label></div>
-<details><summary>詳細設定</summary><label>HTTPメソッド<select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option></select></label><label>許容スケジューラ遅延 <span>ms</span><input id="max-lag" type="number" min="0" max="60000" value="100"></label><label>ヘッダー <span>1行に1つ</span><textarea id="headers" rows="3" placeholder="Accept: application/json"></textarea></label><label>サーバートレースURL<input id="trace-url" type="url" value="http://127.0.0.1:8080/__pulse/trace"></label></details>
-<div class="two actions"><button class="primary" id="start" type="submit">▶ テスト開始</button><button id="stop" type="button" disabled>停止</button></div>
-</form>
-<div class="history-title"><h3>実行履歴</h3><button id="refresh" class="icon" aria-label="履歴を更新">↻</button></div><div id="history" class="history"><p class="muted">まだ実行結果がありません。</p></div>
-<div class="aside-note">Open-loop scheduling<br>上限に達した発行枠は未発行として記録します。</div>
-</aside>
-<main>
-<div class="page-title"><div><div class="eyebrow">PERFORMANCE & CONCURRENCY</div><h1>実行の中身まで、見える。</h1><p id="run-title" class="muted">テストを実行するか、結果のJSONを読み込んでください。</p></div><div class="toolbar"><button id="demo">実測サンプル</button><button id="import">読み込む</button><button id="compare">比較</button><button id="export" disabled>JSON ↓</button><input id="file" type="file" accept=".json,application/json" hidden><input id="baseline-file" type="file" accept=".json,application/json" hidden></div></div>
-<div id="notice" role="status" class="notice" hidden></div>
+<header><a class="brand" href="/" aria-label="SwiftPulse Studio"><svg width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M1 16h7l4-11 6 21 4-10h7" stroke="currentColor" stroke-width="2.5"/></svg>SwiftPulse <small>STUDIO</small></a><div class="header-right"><span>Server observability</span><span class="status" id="connection" role="status">接続待ち</span></div></header>
+<div class="layout"><aside>
+<div class="eyebrow">OBSERVE YOUR SERVER</div><h2>処理の流れを見る</h2><p class="muted">普段のアクセスから、リクエストの重なり、ワーカーの実行区間、処理待ちを確認できます。</p>
+<div class="connection-box"><span class="muted">接続先</span><p id="target">読み込み中…</p><button class="primary" id="live">ライブ観測</button><button id="pause">一時停止</button></div>
+<label>リクエストを絞り込む<input id="search" placeholder="パス または Request ID" autocomplete="off"></label>
+<div class="history-title"><h3>トレースファイル</h3></div><div class="history"><button id="sample">実測サンプル</button><button id="import">JSONを開く</button><button id="export" disabled>JSONを保存</button></div><input hidden type="file" id="file" accept=".json,application/json">
+<p class="aside-note">表示するのは観測された実行区間です。ワーカーの区間にはOSのプリエンプションも含まれるため、CPU使用率とは異なります。</p>
+</aside><main>
+<div class="page-title"><div><div class="eyebrow">EXECUTION OVERVIEW</div><h1>サーバーの実行状況</h1><p class="muted" id="source">接続先のトレースを取得しています。</p></div><span class="status" id="window-note">直近の記録を表示</span></div>
+<div id="notice" class="notice" role="status" hidden></div>
 <div class="metrics">
-<article><span>実発行レート</span><strong id="metric-rate">—</strong><small id="rate-detail">req/s</small></article>
-<article><span>P99 レイテンシ</span><strong id="metric-p99">—</strong><small id="p99-detail">発行開始 → 完了</small></article>
-<article><span>成功率</span><strong id="metric-success">—</strong><small id="success-detail">完了したリクエストのうち</small></article>
-<article><span>未発行</span><strong id="metric-dropped">—</strong><small id="drop-detail">上限 / スケジューラ遅延</small></article>
+<article><span>観測した完了リクエスト</span><strong id="metric-requests">—</strong><small>保持中のトレース内</small></article>
+<article><span>リクエスト時間 p95</span><strong id="metric-p95">—</strong><small>ヘッダー解析後から応答送信まで</small></article>
+<article><span>ワーカー待ち時間 p95</span><strong id="metric-queue">—</strong><small>ジョブ投入から実行開始まで</small></article>
+<article><span>最大同時リクエスト数</span><strong id="metric-overlap">—</strong><small>完了したリクエストの区間から算出</small></article>
 </div>
-<div class="panel"><div class="panel-heading"><div><h2>負荷と応答</h2><p>1秒ごとの発行枠・開始数・完了数と、最大レイテンシ</p></div><div class="legend"><span class="planned">予定</span><span class="green">開始</span><span class="blue">完了</span><span class="orange">最大遅延</span></div></div><canvas id="rate-chart" height="235" aria-label="発行数とレイテンシの時系列グラフ"></canvas><div id="timing-detail" class="panel-footer">スケジュール遅延を含む指標も併せて表示します。</div></div>
-<div class="panel trace-panel"><div class="panel-heading"><div><h2>並列性タイムライン</h2><p>ワーカーの実行区間とリクエストの経過時間を照合</p></div><div class="segmented"><button id="workers" class="selected">ワーカー</button><button id="requests">リクエスト</button></div></div>
-<div class="trace-controls"><label>拡大<input id="zoom" type="range" min="1" max="30" step="0.5" value="1"></label><label>位置<input id="pan" type="range" min="0" max="100" value="0"></label><button id="clear-filter" class="small">選択を解除</button></div>
-<div id="trace-empty" class="empty">サーバートレース付きの結果を読み込むと、実行区間が表示されます。</div><div class="canvas-scroll"><canvas id="trace-chart" height="200" aria-label="ワーカーとリクエストのタイムライン"></canvas></div>
-<div class="panel-footer" id="trace-note">ジョブ区間はexecutor上の経過時間です。OSのCPU稼働率を示すものではありません。</div></div>
-<div class="panel"><div class="panel-heading"><div><h2>リクエスト</h2><p id="sample-note">行を選ぶと、対応する実行区間を絞り込めます。</p></div><input id="search" class="search" placeholder="ID・ステータスで検索" aria-label="リクエストを検索"></div><div class="table-wrap"><table><thead><tr><th>REQUEST</th><th>STATUS</th><th>LATENCY</th><th>SCHEDULER LAG</th><th>TOTAL</th><th>BYTES</th></tr></thead><tbody id="request-rows"><tr><td colspan="6" class="muted">結果がありません。</td></tr></tbody></table></div><div id="selection" class="panel-footer">エラーとレイテンシの内訳をここに表示します。</div></div>
-<footer>SwiftPulse Studio <span>ローカルで計測。結果はJSONとして持ち出せます。</span></footer>
-</main></div><script type="module" src="app.js"></script>
-</body></html>
+<section class="panel"><div class="panel-heading"><div><h2>実行タイムライン</h2><p>区間を選択すると、対応するリクエストを確認できます。</p></div><div class="segmented"><button id="workers" class="selected">ワーカー</button><button id="requests">リクエスト</button></div></div>
+<div class="trace-controls"><label>拡大<input id="zoom" type="range" min="1" max="20" step="0.5" value="1"></label><label>位置<input id="pan" type="range" min="0" max="100" value="100"></label><button id="clear" class="small">選択を解除</button></div>
+<div class="canvas-scroll"><canvas id="timeline" height="220" aria-label="観測した実行区間のタイムライン"></canvas></div>
+<div id="trace-note" class="panel-footer">ワーカーは論理的な実行レーンです。OSスレッドに固定されていません。</div></section>
+<section class="panel"><div class="panel-heading"><div><h2>リクエスト</h2><p id="request-note">リクエストを選ぶと、ワーカー上の実行区間を関連付けて表示します。</p></div><span class="status" id="row-count">0件</span></div>
+<div class="table-wrap"><table><thead><tr><th>パス</th><th>Request ID</th><th>応答</th><th>処理時間</th><th>ワーカー待ち p95</th></tr></thead><tbody id="request-rows"></tbody></table><p class="empty" id="empty">まだリクエストがありません。接続先サーバーにアクセスするか、実測サンプルを開いてください。</p></div></section>
+<footer>SwiftPulse · Nonblocking Swift server<span id="retention">観測データは件数を制限して保持します。</span></footer>
+</main></div><script type="module" src="/app.js"></script></body></html>

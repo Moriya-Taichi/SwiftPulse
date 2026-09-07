@@ -1,138 +1,142 @@
 # SwiftPulse
 
-SwiftNIOに依存しないSwiftの非同期HTTPサーバー、定レート負荷テストCLI、並列性を調べる専用Web UIです。
+**並行処理の動きが見える、軽量なSwiftサーバーフレームワーク。**
 
-`pulse serve`でサーバーを起動し、`pulse attack`で負荷をかけ、`pulse studio`で結果とサーバーの実行区間を照合できます。負荷テストCLIは、SwiftPulse以外のHTTP/HTTPSサーバーにも使えます。
+SwiftPulseは、Swift ConcurrencyでHTTPサーバーを実装し、リクエストの重なり・ワーカーの実行区間・処理待ちを確認できるフレームワークです。SwiftNIOに依存せず、非同期APIの下でノンブロッキングソケットを使用します。Swiftパッケージの外部依存はありません。
 
-**初期実装です。** ノンブロッキングI/O、同時実行数と記録量の上限、負荷生成側の飽和の記録を備えています。既存フレームワークより高速であることを保証するものではありません。
+付属の **Studio** はサーバーの観測画面です。普段のブラウザアクセスやAPI呼び出しをそのまま観測できます。
 
-## 必要環境
+## できること
 
-- Swift 6.0以降
-- LinuxまたはmacOS 15以降
-- Studioの表示には最近のブラウザ
-- npmパッケージ・外部Swiftパッケージへの依存はありません
+- `async throws`なハンドラーを使ったHTTP/1.1サーバーの実装
+- Keep-Alive、接続数制限、読み取り・ハンドラー・送信のタイムアウト
+- ワーカーで実行されたSwiftジョブと、リクエストの関連付け
+- Studioでのライブ観測、一時停止、検索、タイムラインの拡大、トレースJSONの入出力
+- 計測件数を制限しながら、直近の実行状況を継続的に保持
 
-## はじめる
+負荷試験は独立パッケージの **[PulseLoad](Packages/PulseLoad/README.md)** に分離しています。一定レートでのHTTP送信・遅延集計・結果比較を行うツールで、SwiftPulse以外のサーバーにも使えます。本体とStudioのビルドにPulseLoadは不要です。
+
+## 試す
+
+Swift 6.0以降。サーバーはLinuxまたはmacOS 15以降で動作します。
 
 ```sh
 git clone https://github.com/Moriya-Taichi/SwiftPulse.git
 cd SwiftPulse
 swift build -c release
 
-# ターミナル1：計測用サーバー
+# ターミナル1: サンプルサーバー
 .build/release/pulse serve --port 8080 --workers 4
 
-# ターミナル2：専用UI
-.build/release/pulse studio --port 9090
+# ターミナル2: 観測画面
+.build/release/pulse studio --target http://127.0.0.1:8080
 ```
 
-[http://127.0.0.1:9090](http://127.0.0.1:9090)を開き、レート・期間・同時実行上限を指定して「テスト開始」を押してください。UIから停止でき、結果は`runs/`にJSONで保存されます。
-
-Studioを使わず、CLIだけでも実行できます。
+ブラウザで `http://127.0.0.1:9090` を開き、別のターミナルからサーバーへアクセスします。
 
 ```sh
-.build/release/pulse attack \
-  --url 'http://127.0.0.1:8080/work?delay=20&fanout=2&iterations=10000' \
-  --rate 100 --duration 10s --concurrency 128 --timeout 5s \
-  --trace-url http://127.0.0.1:8080/__pulse/trace \
-  --output runs/example.json
-
-.build/release/pulse report --input runs/example.json
+curl 'http://127.0.0.1:8080/work?delay=20&fanout=4'
 ```
 
-Studioの「読み込む」でこのJSONを開けます。「比較」で別の結果を読み込むとP99の差分が表示されます。
+Studioにリクエストとワーカーの実行区間が表示されます。`/work` は非同期の待機と計算を行うサンプルエンドポイントです。`/health` と `POST /echo` も用意しています。
 
-## 負荷テストCLI
+Studioは `Studio/` の静的ファイルを読み込みます。別のディレクトリから起動する場合は `--ui-dir /path/to/SwiftPulse/Studio` を指定してください。観測対象を変更するときは `--target` を変更して起動し直します。
 
-レスポンスの完了と独立して、一定間隔で発行枠を作るopen-loop方式です。処理が遅くなっても、黙ってレートを下げたり、無制限にTaskを積んだりしません。
+## 自分のサーバーに組み込む
 
-| オプション | 既定値 | 内容 |
-|---|---:|---|
-| `--url` | `http://127.0.0.1:8080/` | HTTP/HTTPSターゲット |
-| `--rate` | 100 | 毎秒の発行枠数 |
-| `--duration` | 10s | 発行期間。数値、`ms`、`s`、`m` |
-| `--concurrency` | 128 | 発行中のリクエスト数の上限 |
-| `--timeout` | 5s | リクエストのタイムアウト |
-| `--method` | GET | HTTPメソッド |
-| `--header` | なし | `Name: value`。繰り返し指定可能 |
-| `--body` | なし | リクエストBodyを読み込むファイル |
-| `--max-lag-ms` | 100 | 発行枠を捨てるスケジューラ遅延の閾値。単位はms |
-| `--max-samples` | 20000 | 個別リクエストを保存する上限 |
-| `--max-response-bytes` | 16777216 | 1レスポンスの受信量上限 |
-| `--trace-url` | なし | 実行後に取得するSwiftPulseのトレースURL |
-| `--output` | `runs/<id>.json` | 集計・サンプル・トレースの出力先 |
+アプリケーションの `Package.swift` に追加します。
 
-レスポンスBodyは集計用にバイト数だけ数え、蓄積しません。リダイレクトは追跡せず、返されたステータスを記録します。200〜399を成功、それ以外と通信エラーを失敗に数えます。
+```swift
+.package(url: "https://github.com/Moriya-Taichi/SwiftPulse.git", branch: "main")
+```
 
-上限による未発行（`droppedCapacity`）と、スケジューラの遅れによる未発行（`droppedLate`）は別々に記録します。終了後は発行済みリクエストの完了を待ちます。Ctrl-Cではキャンセルし、途中結果を保存します。
-
-### 指標の意味
-
-- **レイテンシ**：リクエストTaskが発行を開始してから、Bodyの受信完了またはエラーまで。URLSession内部の接続待ち・DNS・TLSも含みます。ネットワーク上の送信開始時刻ではありません。
-- **スケジューラ遅延**：予定した発行時刻からリクエストTaskの開始まで。
-- **予定時刻→完了**：スケジューラ遅延を含む時間。
-- **実発行レート**：開始したリクエスト数÷発行期間。完了レートとは異なります。
-- 分位点は全完了リクエストを固定容量の対数ヒストグラムで集計します。1μs以上で上側境界による最大約2%の量子化誤差があります。最大値と平均は実測値です。
-- 個別サンプルは保存上限までの先着完了分です。ランダムサンプルではありません。集計はサンプル上限に影響されません。
-- **未発行分はレイテンシ分布に含まれません。** 未発行がある結果を、目標レートを達成した結果として比較しないでください。ヒストグラムのcoordinated omission補正を自動的に行う実装ではありません。
-
-## 専用UI
-
-- 実行・停止、最近20件の履歴、JSONの読み込み・出力
-- 予定発行数・開始数・完了数と最大レイテンシの時系列
-- サーバーのワーカー別ジョブ区間、リクエスト別Handler・送信区間
-- タイムラインの拡大・移動、リクエストを選択した絞り込み
-- ステータス・通信エラー・遅延の内訳、別実行とのP99比較
-
-負荷生成はブラウザではなく`pulse studio`のSwiftプロセスで行います。負荷生成側とサーバーを別ホストで動かす場合、`pulse attack`を負荷生成ホストで実行し、そのJSONをStudioへ取り込めます。`X-Pulse-Request-ID`で照合するため、別ホスト間の時刻同期を前提にしません。
-
-### 並列性の読み方
-
-`WorkerPool`は複数の直列DispatchQueueでジョブを実行します。`RequestExecutor`がrequest IDを持ち、Swiftの公開`TaskExecutor` APIで管理下のジョブを記録します。レーンは論理ワーカーであり、固定されたOSスレッドではありません。各区間には実行したOS thread IDも付けています。
-
-**executorのジョブ区間は実行開始から戻るまでの経過時間であり、CPU稼働率ではありません。** OSのプリエンプションや、ユーザーコードによるブロッキングを含み得ます。Handlerとソケット操作の区間には`await`中の待ち時間も含みます。独自executorを持つactor、外部ライブラリの内部Task、OSのスケジューリングは捕捉しません。
-
-トレースは有効時のみ固定上限まで記録し、それ以降は欠落件数を数えます。長時間の計測には`--trace-capacity`を調整してください。`--trace-capacity 0`で記録を無効にできます。`/__pulse/trace`はChrome Trace Event形式の`traceEvents`を含み、Perfettoでも読み込めます。
-
-## ライブラリとして使う
+ターゲットの依存に `.product(name: "PulseCore", package: "SwiftPulse")` を追加します。
 
 ```swift
 import PulseCore
 
-let server = try HTTPServer(port: 8080, workers: 4) { request in
-    switch request.path {
-    case "/health": return .text("OK")
-    default: return .text("Not found", status: 404)
+@main
+struct Application {
+    static func main() async throws {
+        let recorder = TraceRecorder(capacity: 50_000)
+        let server = try HTTPServer(port: 8080, workers: 4, trace: recorder) { request in
+            switch request.path {
+            case "/__pulse/trace":
+                return try TraceEndpoint.response(to: request, recorder: recorder)
+            case "/hello":
+                return .text("Hello, Swift!\n")
+            default:
+                return .text("Not found", status: 404)
+            }
+        }
+        try await server.run()
     }
 }
-try await server.run()
 ```
 
-`AsyncSocket`は非ブロッキングソケットをDispatchSourceとchecked continuationで接続します。同時に1つのread（またはaccept）と1つのwriteを許可し、writeは実際に送信バッファへ渡せるまで待機します。操作のキャンセルは接続全体を閉じます。ファイルディスクリプタは両方のDispatchSourceのキャンセル完了後に解放します。
+このサーバーも `pulse studio --target http://127.0.0.1:8080` で観測できます。トレースの出力先は `/__pulse/trace` です。ライブラリの計測は既定で無効です。`TraceRecorder` を渡さなければ、通常のHTTPサーバーとして動作します。サンプルCLIでは `--trace-capacity 0` で無効にできます。
 
-サーバーは接続数、ヘッダー、Body、読み書きの待機時間に上限を設けています。`stop()`は新規acceptを停止し、接続処理を待ちます。実行Taskのキャンセルは接続処理もキャンセルします。キャンセルに協調しないユーザーコードを強制中断する機能はありません。
+## 並行処理と可視化
 
-## 現在の範囲
+`async` は並列実行を保証する指定ではありません。処理が中断・再開できることと、複数の処理が実際に同時実行されることを分けて扱います。
 
-| 実装済み | 未実装 |
+| Studioの表示 | 意味 |
 |---|---|
-| IPv4の非同期TCP、HTTP/1.1、keep-alive、Content-Length | IPv6のサーバーバインド、サーバーTLS、HTTP/2・HTTP/3・WebSocket |
-| Body上限、曖昧なフレーミングの拒否、部分受信・部分送信 | chunked request、Expect: 100-continue、汎用BodyストリーミングAPI |
-| 定レート負荷、HTTPSクライアント、レスポンスBody破棄 | ランプレート、分散エージェント、Vegetaのバイナリ形式との互換 |
-| 専用UI、管理下executorのトレース | OSのCPUスケジューラトレース、全Swift Taskの自動捕捉 |
+| リクエスト区間 | ヘッダー・Bodyの解析完了から応答送信完了までの経過時間 |
+| ハンドラー区間 | ハンドラーの経過時間。`await`による待機も含む |
+| ワーカー区間 | 管理下のTaskExecutorがSwiftジョブを実行した区間 |
+| ワーカー待ち時間 | ジョブを投入してから実行が始まるまでの時間 |
+| 最大同時リクエスト数 | 保持している完了リクエストの区間が重なった最大数 |
 
-HTTP実装は意図的に狭い範囲を厳密に扱います。重複ヘッダー、Transfer-Encoding、Expect、不正なContent-Lengthは拒否し、曖昧な接続を再利用しません。リクエストBodyは上限内で蓄積します。小さなレスポンスはヘッダーとBodyをまとめ、大きなBodyは64 KiBずつ送信します。TCP_NODELAYを有効にして小さな応答の送信待ちを抑えます。ゼロコピー実装ではありません。
+ワーカーは直列DispatchQueueによる論理レーンです。OSスレッドとの固定対応はありません。実行区間にはOSによるプリエンプションが含まれます。CPU使用率、外部の実行基盤、専用Executorを持つActorの動作を網羅するプロファイラーではありません。未完了リクエストは完了区間の統計に含まれません。
 
-## 検証
+通常のアクセスにもRequest IDを付与します。クライアントが `X-Pulse-Request-ID` を送った場合はその値を使用するため、関連付けには一意な値を使用してください。
+
+## 計測の負担を抑える設計
+
+- HTTPの増分デコーダーがヘッダーの検索位置と解析結果を保持し、Body受信中の再解析を省く
+- ソケット単位で受信領域を再利用し、読み取り待ちでの領域確保・ゼロ初期化を省く
+- 大きな応答は既存のバッファを保持して送信し、64 KiBごとのコピーと非同期処理の再開を減らす
+- ジョブの待ち時間・スレッド番号は数値で記録し、出力時に文字列へ変換する
+- 計測無効時はイベントの辞書・レーン文字列を生成しない
+- 直近のイベントをリングバッファに保持し、Studioにはカーソル以降の差分だけを送る
+
+Studioの取得は1秒間隔、1回最大5,000イベント、ブラウザ側の保持は最大20,000イベントです。取得が追いつかなかった場合は欠落数を表示します。サーバー再起動時はセッションを切り替え、以前の時刻・カーソルを引き継ぎません。
+
+性能比較の条件と結果は [docs/performance.md](docs/performance.md)、内部設計は [docs/design.md](docs/design.md) に記載しています。
+
+## 現在の対応範囲
+
+HTTP/1.1、Content-LengthによるBody、IPv4のTCPリスナーに対応しています。曖昧な重複ヘッダーやTransfer-Encodingは拒否します。
+
+サーバー側TLS、HTTP/2・3、WebSocket、chunked転送、汎用的なBodyストリーミングは未実装です。ヘッダーは最大16 KiB、リクエストBodyは最大1 MiBです。ハンドラーのタイムアウトは協調的なキャンセルのため、長い計算ではキャンセルを確認してください。
+
+サンプルサーバーとStudioは既定でループバックにバインドします。トレースAPIとStudioには認証を実装していないため、開発時の観測用として扱います。
+
+## 開発・検証
 
 ```sh
 swift test
 node --test Tests/StudioTests/*.test.mjs
 swift build -c release
-python3 scripts/integration.py --binary .build/release/pulse
+python3 scripts/integration.py
+
+# 負荷試験ツールは独立してビルド・検証
+swift test --package-path Packages/PulseLoad
+swift build --package-path Packages/PulseLoad -c release
+python3 Packages/PulseLoad/scripts/integration.py
 ```
 
-SwiftテストはHTTPフレーミング、部分I/O、キャンセル、ヒストグラム、負荷生成の飽和を確認します。統合テストはCLI、サーバー、Studio API、結果の整合性を確認します。UIの操作テストは`node scripts/browser-test.mjs`で実行できます（PlaywrightとChromiumが必要）。
+CIではLinuxとmacOSで両パッケージを検証します。PulseLoadはリポジトリ外にコピーしてビルドし、本体への依存がないことも確認します。Studioは実際のHTTPアクセス、ライブ観測、検索・選択、ファイル入出力、モバイル表示をブラウザで検証します。
 
-設計上の判断と測定方法は[docs/design.md](docs/design.md)、この実装の検証結果は[docs/validation.md](docs/validation.md)を参照してください。
+## 以前のCLIからの移行
+
+| 以前 | 現在 |
+|---|---|
+| `pulse attack` | `pulse-load attack` |
+| `pulse report` | `pulse-load report` |
+| Studioでの負荷設定・試験管理 | PulseLoadのCLIで実行・比較 |
+| `pulse studio --reports runs` | `pulse studio --target http://127.0.0.1:8080` |
+| 負荷結果に埋め込まれたトレース | `/__pulse/trace` またはStudioから独立したトレースJSONを取得 |
+
+負荷結果JSONの従来の集計項目は維持しています。新しい結果の `kind` は `pulseload.run` です。`--trace-url` と自動トレース取得は廃止し、計測データの取得はStudioに集約しました。以前の `swiftpulse.run` は `pulse-load report` / `compare` で読み込めます。

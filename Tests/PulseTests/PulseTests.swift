@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 @testable import PulseCore
-@testable import PulseLoad
 
 @Test func fragmentedAndPipelinedHTTP() throws {
     var bytes = Data("POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n\r\nab".utf8)
@@ -59,15 +58,6 @@ import Testing
     }
 }
 
-@Test func histogramUsesBoundedApproximation() {
-    var histogram = LatencyHistogram()
-    for i in 1...1000 { histogram.record(Double(i)) }
-    #expect(histogram.percentile(0.50) >= 500)
-    #expect(histogram.percentile(0.50) <= 510)
-    #expect(histogram.percentile(0.99) >= 990)
-    #expect(histogram.summary.max == 1000)
-    #expect(histogram.summary.mean == 500.5)
-}
 
 @Test func cancelBackpressuredWrite() async throws {
     let (a, b) = try AsyncSocket.pair()
@@ -78,17 +68,6 @@ import Testing
     _ = await writer.result // Cancellation must release a writer even when the peer never reads.
 }
 
-@Test func responseBodyLimitProducesFailure() async throws {
-    let server = try HTTPServer(port: 0) { _ in HTTPResponse(body: Data(repeating: 1, count: 262144)) }
-    let running = Task { try await server.run() }
-    defer { server.stop(); running.cancel() }
-    var config = LoadConfiguration(url: "http://127.0.0.1:\(await server.listener.localPort())/")
-    config.rate = 2; config.duration = 0.5; config.maxResponseBytes = 1024
-    let report = try await LoadEngine.run(configuration: config)
-    #expect(report.summary.failed == 1)
-    #expect(report.requests.first?.error == "response_body_limit")
-    server.stop(); running.cancel(); _ = await running.result
-}
 
 @Test func traceCapacityIsBounded() {
     let recorder = TraceRecorder(capacity: 2)
@@ -97,41 +76,62 @@ import Testing
     #expect(recorder.snapshot().droppedEvents == 3)
 }
 
-@Test func invalidLoadConfiguration() {
-    var config = LoadConfiguration(url: "file:///tmp/data")
-    #expect(throws: LoadError.self) { try config.validate() }
-    config.url = "http://localhost/"; config.rate = .nan
-    #expect(throws: LoadError.self) { try config.validate() }
-}
 
-@Test func openLoopDropsInsteadOfBecomingClosedLoop() async throws {
-    let server = try HTTPServer(port: 0) { _ in
-        try await Task.sleep(for: .milliseconds(100)); return .text("ok")
+
+
+@Test func decoderHandlesEveryHeaderSplitAndLargePipelinedBodies() throws {
+    let header = Data("POST /echo?x=1 HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n\r\n".utf8)
+    for split in 0...header.count {
+        var decoder = HTTPDecoder()
+        decoder.append(header.prefix(split)); #expect(try decoder.next() == nil)
+        decoder.append(header.dropFirst(split)); #expect(try decoder.next() == nil)
+        decoder.append(Data("abcGET /next HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8))
+        let decoded = try decoder.next()
+        let request = try #require(decoded)
+        #expect(request.body == Data("abc".utf8)); #expect(request.path == "/echo")
+        #expect(request.requestID == request.requestID)
+        #expect(try decoder.next()?.path == "/next"); #expect(try decoder.next() == nil)
     }
-    let running = Task { try await server.run() }
-    defer { server.stop(); running.cancel() }
-    var config = LoadConfiguration(url: "http://127.0.0.1:\(await server.listener.localPort())/")
-    config.rate = 100; config.duration = 0.5; config.concurrency = 1; config.maxSamples = 2
-    let result = try await LoadEngine.run(configuration: config)
-    #expect(result.summary.scheduled == 50)
-    #expect(result.summary.droppedCapacity > 0)
-    #expect(result.summary.started + result.summary.dropped == 50)
-    #expect(result.summary.completed == result.summary.started)
-    #expect(result.summary.peakInFlight <= 1)
-    #expect(result.requests.count <= 2)
-    #expect(result.summary.failed == 0)
-    server.stop(); running.cancel(); _ = await running.result
+    var decoder = HTTPDecoder()
+    decoder.append(Data("POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1048576\r\n\r\n".utf8))
+    let chunk = Data(repeating: 97, count: 1024)
+    for _ in 0..<1023 { decoder.append(chunk); #expect(try decoder.next() == nil) }
+    decoder.append(chunk)
+    decoder.append(Data("GET /next HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8))
+    #expect(try decoder.next()?.body == Data(repeating: 97, count: 1048576))
+    #expect(try decoder.next()?.path == "/next")
 }
 
-@Test func loadReportsServerFailures() async throws {
-    let server = try HTTPServer(port: 0) { _ in .text("unavailable", status: 503) }
-    let running = Task { try await server.run() }
-    defer { server.stop(); running.cancel() }
-    var config = LoadConfiguration(url: "http://127.0.0.1:\(await server.listener.localPort())/")
-    config.rate = 10; config.duration = 0.3
-    let report = try await LoadEngine.run(configuration: config)
-    #expect(report.summary.completed > 0)
-    #expect(report.summary.failed == report.summary.completed)
-    #expect(report.summary.statuses["503"] == report.summary.completed)
-    server.stop(); running.cancel(); _ = await running.result
+@Test func traceRingExportsLatestSpansAndCursorGaps() {
+    let trace = TraceRecorder(capacity: 3)
+    for i in 1...8 { trace.span("span-\(i)", category: "test", start: monotonicNS(), lane: "test") }
+    let full = trace.snapshot()
+    #expect(full.traceEvents.map(\.name) == ["span-6", "span-7", "span-8"])
+    #expect(full.droppedEvents == 5); #expect(full.oldestCursor == 6); #expect(full.nextCursor == 8)
+    #expect(trace.snapshot(after: 7).traceEvents.map(\.sequence) == [8])
+    #expect(trace.snapshot(after: 8).traceEvents.isEmpty)
+    #expect(trace.snapshot(after: 0, limit: 2).traceEvents.map(\.sequence) == [7, 8])
+    #expect(trace.snapshot(limit: 0).traceEvents.isEmpty)
+}
+
+@Test func disabledTracingDoesNotConstructMetadata() {
+    let trace = TraceRecorder()
+    trace.span("test", category: "test", start: 0, lane: { Issue.record("Disabled tracing evaluated lane"); return "test" }(), args: { Issue.record("Disabled tracing evaluated args"); return [:] }())
+    #expect(trace.snapshot().traceEvents.isEmpty)
+}
+
+@Test func multiBufferWritePreservesOrderUnderBackpressure() async throws {
+    let (writer, reader) = try AsyncSocket.pair()
+    defer { writer.close(); reader.close() }
+    let buffers = [Data(), Data(repeating: 1, count: 700000), Data(repeating: 2, count: 900000), Data()]
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        group.addTask { try await writer.write(buffers: buffers) }
+        group.addTask {
+            try await Task.sleep(for: .milliseconds(20))
+            var result = Data()
+            while result.count < 1600000 { result.append(try await reader.read(maxBytes: 16384)) }
+            #expect(result == buffers.reduce(into: Data(), { $0.append($1) }))
+        }
+        try await group.waitForAll()
+    }
 }
