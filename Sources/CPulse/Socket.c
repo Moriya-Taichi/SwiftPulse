@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #ifdef __linux__
 #include <sys/syscall.h>
 #endif
@@ -66,4 +67,20 @@ uint64_t pulse_thread_id(void) {
 #else
     uint64_t id = 0; pthread_threadid_np(NULL, &id); return id;
 #endif
+}
+static volatile sig_atomic_t received_signal = 0;
+static struct sigaction previous_int, previous_term;
+static void record_signal(int value) { received_signal = value; }
+void pulse_install_signals(void) {
+    received_signal = 0;
+    struct sigaction action = {0};
+    action.sa_handler = record_signal;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, &previous_int);
+    sigaction(SIGTERM, &action, &previous_term);
+}
+int pulse_signal_received(void) { return received_signal; }
+void pulse_restore_signals(void) {
+    sigaction(SIGINT, &previous_int, NULL);
+    sigaction(SIGTERM, &previous_term, NULL);
 }

@@ -4,6 +4,13 @@ import CPulse
 
 public func monotonicNS() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
+/// CLI process lifecycle; the POSIX handler only writes a sig_atomic_t value.
+public enum ProcessSignals {
+    public static func install() { pulse_install_signals() }
+    public static func restore() { pulse_restore_signals() }
+    public static var received: Bool { pulse_signal_received() != 0 }
+}
+
 public struct TraceEvent: Codable, Sendable {
     public var name: String
     public var cat: String

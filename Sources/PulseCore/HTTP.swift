@@ -73,6 +73,13 @@ private actor ConnectionLimit {
     func release() { count -= 1 }
 }
 
+private final class StopFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    func stop() { lock.lock(); stopped = true; lock.unlock() }
+    var isStopped: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
+}
+
 public final class HTTPServer: Sendable {
     public typealias Handler = @Sendable (HTTPRequest) async throws -> HTTPResponse
     public let listener: AsyncSocket
@@ -81,13 +88,14 @@ public final class HTTPServer: Sendable {
     private let limit: ConnectionLimit
     private let timeout: Double
     private let handler: Handler
+    private let stopFlag = StopFlag()
     public init(address: String = "127.0.0.1", port: UInt16, workers: Int = 4, maxConnections: Int = 1024,
                 requestTimeout: Double = 15, trace: TraceRecorder = TraceRecorder(), handler: @escaping Handler) throws {
         listener = try AsyncSocket.listen(address: address, port: port)
         self.trace = trace; pool = WorkerPool(workers: workers); limit = ConnectionLimit(maxConnections)
         timeout = requestTimeout; self.handler = handler
     }
-    public func stop() { listener.close() }
+    public func stop() { stopFlag.stop(); listener.close() }
     public func run() async throws {
         try await withTaskCancellationHandler {
             try await withThrowingDiscardingTaskGroup { group in
@@ -113,6 +121,7 @@ public final class HTTPServer: Sendable {
             // Bounded keep-alive lifetime prevents an idle client from holding a slot forever.
             for _ in 0..<1000 {
                 try Task.checkCancellation()
+                if stopFlag.isStopped { return }
                 let request = try await nextRequest(socket, buffered: buffer, connectionID: connectionID)
                 buffer = request.1
                 guard let request = request.0 else { return }

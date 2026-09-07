@@ -15,4 +15,7 @@ int pulse_interrupted(int error);
 void pulse_close(int fd);
 uint16_t pulse_port(int fd);
 uint64_t pulse_thread_id(void);
+void pulse_install_signals(void);
+int pulse_signal_received(void);
+void pulse_restore_signals(void);
 #endif

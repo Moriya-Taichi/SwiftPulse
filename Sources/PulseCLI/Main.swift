@@ -60,18 +60,29 @@ func printSummary(_ report: RunReport) {
 }
 
 @main struct PulseMain {
-    static func main() async {
+    static func main() {
+        // Keep the process entry thread alive. This wait is NOT on Swift's cooperative pool.
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached { await run(); finished.signal() }
+        finished.wait()
+    }
+    static func run() async {
         do {
             let arguments = try Arguments(Array(CommandLine.arguments.dropFirst()))
             if arguments.command == "help" || arguments.command == "--help" { print(help); return }
+            if arguments.command == "report" { try await execute(arguments); return }
+            ProcessSignals.install()
             let work = Task { try await execute(arguments) }
-            signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN)
-            let sources = [SIGINT, SIGTERM].map { number -> DispatchSourceSignal in
-                let source = DispatchSource.makeSignalSource(signal: number)
-                source.setEventHandler { work.cancel() }; source.resume(); return source
+            let watcher = Task {
+                while !Task.isCancelled {
+                    try await Task.sleep(for: .milliseconds(50))
+                    if ProcessSignals.received { work.cancel(); return }
+                }
             }
-            defer { sources.forEach { $0.cancel() } }
-            try await work.value
+            let result = await work.result
+            watcher.cancel(); _ = await watcher.result
+            ProcessSignals.restore()
+            try result.get()
         } catch {
             FileHandle.standardError.write(Data("pulse: \(error)\n".utf8)); exit(1)
         }

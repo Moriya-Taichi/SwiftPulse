@@ -1,0 +1,32 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test tools
+        run: apt-get update -qq && apt-get install -y -qq python3 nodejs
+      - run: swift test
+      - run: node --test Tests/StudioTests/*.test.mjs
+      - run: swift build -c release
+      - run: python3 scripts/integration.py --binary .build/release/pulse
+      - name: Install browser test dependencies
+        run: npm install --no-save --package-lock=false playwright@1.55.0 && npx playwright install --with-deps chromium
+      - run: python3 scripts/browser_integration.py --binary .build/release/pulse
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: studio-browser-results
+          path: test-results/
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: swift test
+      - run: swift build -c release
+      - run: python3 scripts/integration.py --binary .build/release/pulse
