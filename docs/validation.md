@@ -2,14 +2,16 @@
 
 Verified on 2026-09-07 using Swift 6.0.3, Ubuntu 24.04 x86_64, and Node 24.19.0.
 
-| Check | Local result |
+| Check | Result |
 |---|---|
 | Swift debug build and test | 12 tests passed, including seven malformed-header cases in a parameterized test |
 | Swift release build | Passed |
 | Studio data model tests | 5 passed |
 | CLI/server/Studio API integration | Passed |
-| Browser interaction | Local cloud browser cannot connect to workspace loopback; automated CI test included |
-| macOS | CI configured; no local macOS runtime available |
+| Browser interaction | Passed in Linux CI, including desktop/mobile layouts and actual UI-triggered requests |
+| macOS | Build, Swift tests and CLI/server/Studio API integration passed in CI |
+
+[GitHub Actions run 34122344887](https://github.com/Moriya-Taichi/SwiftPulse/actions/runs/34122344887) passed both Linux and macOS jobs for implementation commit `2ba1137db0dd3e063d697f7a6e48e477ab86fe7e`. The local cloud browser could not connect to workspace loopback, so browser interactions were verified in CI.
 
 The compiler's standalone driver was incompatible with this execution environment's process introspection. The local Swift build used the official `SWIFT_USE_OLD_DRIVER=1` fallback; the Swift language mode remained 6. CI uses the ordinary `swift build` and `swift test` commands.
 
