@@ -1,0 +1,88 @@
+{
+  "results": [
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 9996.326643,
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 65.732133,
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 63.615855,
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 10129.249113,
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 9839.79133,
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 70.282787,
+      "variant": "after",
+      "repeat": 2
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 74.469584,
+      "variant": "after",
+      "repeat": 3
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 9954.158851,
+      "variant": "before",
+      "repeat": 3
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 10042.873219,
+      "variant": "before",
+      "repeat": 4
+    },
+    {
+      "scenario": "fragmented-1MiB-body-1KiB-chunks",
+      "iterations": 100,
+      "checked": 100,
+      "elapsedMS": 63.248111,
+      "variant": "after",
+      "repeat": 4
+    }
+  ],
+  "medianElapsedMS": {
+    "before": 9996.326643,
+    "after": 65.732133
+  }
+}

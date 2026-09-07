@@ -1,0 +1,271 @@
+{
+  "environment": {
+    "platform": "Linux",
+    "machine": "x86_64",
+    "repeats": 5,
+    "traceCapacity": 500000
+  },
+  "results": [
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 0,
+      "requests": 12800,
+      "rps": 24347.01973111361,
+      "p99MS": 1.5131390100577846,
+      "serverCPUSeconds": 3.108624,
+      "serverPeakRSSMiB": 49.5078125
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 0,
+      "requests": 12800,
+      "rps": 22936.054886644466,
+      "p99MS": 1.4373869926203042,
+      "serverCPUSeconds": 3.297395,
+      "serverPeakRSSMiB": 46.91015625
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 1,
+      "requests": 12800,
+      "rps": 23681.991396170597,
+      "p99MS": 1.2598650064319372,
+      "serverCPUSeconds": 3.0292519999999996,
+      "serverPeakRSSMiB": 46.90625
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 1,
+      "requests": 12800,
+      "rps": 23256.66038771688,
+      "p99MS": 1.3829079980496317,
+      "serverCPUSeconds": 3.11992,
+      "serverPeakRSSMiB": 48.8828125
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 2,
+      "requests": 12800,
+      "rps": 23986.538214849894,
+      "p99MS": 1.321165997069329,
+      "serverCPUSeconds": 2.942659,
+      "serverPeakRSSMiB": 48.87890625
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 2,
+      "requests": 12800,
+      "rps": 23037.646354348097,
+      "p99MS": 1.4619329886045307,
+      "serverCPUSeconds": 3.140745,
+      "serverPeakRSSMiB": 47.21875
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 3,
+      "requests": 12800,
+      "rps": 24110.116961823875,
+      "p99MS": 1.6190150054171681,
+      "serverCPUSeconds": 2.9390989999999997,
+      "serverPeakRSSMiB": 47.31640625
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 3,
+      "requests": 12800,
+      "rps": 24288.842797457615,
+      "p99MS": 1.232997004990466,
+      "serverCPUSeconds": 3.116148,
+      "serverPeakRSSMiB": 49.0
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 4,
+      "requests": 12800,
+      "rps": 23437.89677293306,
+      "p99MS": 1.4770959969609976,
+      "serverCPUSeconds": 3.1024760000000002,
+      "serverPeakRSSMiB": 49.20703125
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 4,
+      "requests": 12800,
+      "rps": 24621.298745874497,
+      "p99MS": 1.1782760120695457,
+      "serverCPUSeconds": 2.968636,
+      "serverPeakRSSMiB": 46.875
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 0,
+      "requests": 12800,
+      "rps": 23535.746601367886,
+      "p99MS": 1.5153319982346147,
+      "serverCPUSeconds": 3.205519,
+      "serverPeakRSSMiB": 89.41015625
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 0,
+      "requests": 12800,
+      "rps": 23115.29191937247,
+      "p99MS": 1.554039990878664,
+      "serverCPUSeconds": 3.058089,
+      "serverPeakRSSMiB": 76.78125
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 1,
+      "requests": 12800,
+      "rps": 22264.447519830002,
+      "p99MS": 1.3973379973322153,
+      "serverCPUSeconds": 3.3433219999999997,
+      "serverPeakRSSMiB": 76.71875
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 1,
+      "requests": 12800,
+      "rps": 20336.642419703865,
+      "p99MS": 1.716248007141985,
+      "serverCPUSeconds": 3.5934939999999997,
+      "serverPeakRSSMiB": 89.99609375
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 2,
+      "requests": 12800,
+      "rps": 20975.27397535444,
+      "p99MS": 1.8078029970638454,
+      "serverCPUSeconds": 3.354995,
+      "serverPeakRSSMiB": 89.11328125
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 2,
+      "requests": 12800,
+      "rps": 23392.48266289921,
+      "p99MS": 1.4544329897034913,
+      "serverCPUSeconds": 3.027269,
+      "serverPeakRSSMiB": 76.84765625
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 3,
+      "requests": 12800,
+      "rps": 23003.618190348614,
+      "p99MS": 1.6192549956031144,
+      "serverCPUSeconds": 3.07756,
+      "serverPeakRSSMiB": 77.01953125
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 3,
+      "requests": 12800,
+      "rps": 22379.09059474501,
+      "p99MS": 1.6306119941873476,
+      "serverCPUSeconds": 3.340938,
+      "serverPeakRSSMiB": 89.140625
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 4,
+      "requests": 12800,
+      "rps": 21610.373312563464,
+      "p99MS": 1.4482430124189705,
+      "serverCPUSeconds": 3.39127,
+      "serverPeakRSSMiB": 89.0703125
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 4,
+      "requests": 12800,
+      "rps": 21775.57419519471,
+      "p99MS": 1.663891991483979,
+      "serverCPUSeconds": 3.35469,
+      "serverPeakRSSMiB": 77.05859375
+    }
+  ],
+  "medians": {
+    "health": {
+      "before": {
+        "rps": 23986.538214849894,
+        "p99MS": 1.3829079980496317,
+        "serverCPUSeconds": 3.108624,
+        "serverPeakRSSMiB": 49.0
+      },
+      "after": {
+        "rps": 23681.991396170597,
+        "p99MS": 1.4373869926203042,
+        "serverCPUSeconds": 3.0292519999999996,
+        "serverPeakRSSMiB": 46.91015625
+      }
+    },
+    "traced-health": {
+      "before": {
+        "rps": 21610.373312563464,
+        "p99MS": 1.6306119941873476,
+        "serverCPUSeconds": 3.354995,
+        "serverPeakRSSMiB": 89.140625
+      },
+      "after": {
+        "rps": 23003.618190348614,
+        "p99MS": 1.554039990878664,
+        "serverCPUSeconds": 3.07756,
+        "serverPeakRSSMiB": 76.84765625
+      }
+    }
+  },
+  "incompleteLargeEcho": {
+    "requestsPerTrial": 800,
+    "completedTrials": [
+      {
+        "variant": "before",
+        "repeat": 0,
+        "rps": 765.9776899638401,
+        "p99MS": 7.928880993858911,
+        "serverCPUSeconds": 3.064971,
+        "serverPeakRSSMiB": 43.09765625
+      },
+      {
+        "variant": "after",
+        "repeat": 0,
+        "rps": 1342.0945399043808,
+        "p99MS": 5.394441992393695,
+        "serverCPUSeconds": 1.607052,
+        "serverPeakRSSMiB": 36.19921875
+      },
+      {
+        "variant": "after",
+        "repeat": 1,
+        "rps": 1259.8652786126838,
+        "p99MS": 6.162509002024308,
+        "serverCPUSeconds": 1.7334209999999999,
+        "serverPeakRSSMiB": 37.53125
+      }
+    ],
+    "completed": false,
+    "failure": "The baseline process crashed with signal 4; its crash report referenced /proc/77/stat. The local runtime could not suspend threads for a complete backtrace. This resembles the process-introspection limitation observed when installing Swift; the exact cause was not established. Earlier two extended attempts also terminated before completing large-echo comparisons. No extended large-echo aggregate is reported."
+  }
+}

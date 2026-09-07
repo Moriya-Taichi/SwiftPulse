@@ -1,0 +1,317 @@
+{
+  "environment": {
+    "platform": "Linux",
+    "machine": "x86_64",
+    "repeats": 5
+  },
+  "results": [
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 0,
+      "requests": 3200,
+      "rps": 21270.122641611106,
+      "p99MS": 1.6881680057849735,
+      "serverCPUSeconds": 0.8378319999999999
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 0,
+      "requests": 3200,
+      "rps": 21969.32824977432,
+      "p99MS": 1.4251490065362304,
+      "serverCPUSeconds": 0.830174
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 1,
+      "requests": 3200,
+      "rps": 22041.562231498097,
+      "p99MS": 1.5405489975819364,
+      "serverCPUSeconds": 0.7911370000000003
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 1,
+      "requests": 3200,
+      "rps": 21307.225731500905,
+      "p99MS": 1.3410050014499575,
+      "serverCPUSeconds": 0.9027240000000003
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 2,
+      "requests": 3200,
+      "rps": 19805.96099996306,
+      "p99MS": 2.391193003859371,
+      "serverCPUSeconds": 0.8821519999999998
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 2,
+      "requests": 3200,
+      "rps": 20236.2674020093,
+      "p99MS": 1.5899220015853643,
+      "serverCPUSeconds": 0.8640620000000001
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 3,
+      "requests": 3200,
+      "rps": 21992.78448386903,
+      "p99MS": 1.3730729988310486,
+      "serverCPUSeconds": 0.829742
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 3,
+      "requests": 3200,
+      "rps": 21525.25060126721,
+      "p99MS": 1.5483909955946729,
+      "serverCPUSeconds": 0.851782
+    },
+    {
+      "scenario": "health",
+      "variant": "before",
+      "repeat": 4,
+      "requests": 3200,
+      "rps": 20953.90161981968,
+      "p99MS": 1.5043660096125677,
+      "serverCPUSeconds": 0.8416730000000006
+    },
+    {
+      "scenario": "health",
+      "variant": "after",
+      "repeat": 4,
+      "requests": 3200,
+      "rps": 21622.411424956692,
+      "p99MS": 2.009115007240325,
+      "serverCPUSeconds": 0.8232180000000016
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 0,
+      "requests": 3200,
+      "rps": 20182.64091833001,
+      "p99MS": 1.7081560072256252,
+      "serverCPUSeconds": 0.9224359999999994
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 0,
+      "requests": 3200,
+      "rps": 21702.78608354307,
+      "p99MS": 1.6134420002344996,
+      "serverCPUSeconds": 0.8771969999999989
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 1,
+      "requests": 3200,
+      "rps": 20978.08416196365,
+      "p99MS": 1.750317998812534,
+      "serverCPUSeconds": 0.846845000000001
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 1,
+      "requests": 3200,
+      "rps": 18301.36488082668,
+      "p99MS": 1.6996839985949919,
+      "serverCPUSeconds": 0.9540550000000012
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 2,
+      "requests": 3200,
+      "rps": 18015.320182532487,
+      "p99MS": 2.9154270014259964,
+      "serverCPUSeconds": 0.9939669999999987
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 2,
+      "requests": 3200,
+      "rps": 21477.291898662406,
+      "p99MS": 2.426275998004712,
+      "serverCPUSeconds": 0.8491740000000005
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 3,
+      "requests": 3200,
+      "rps": 17550.25404238041,
+      "p99MS": 2.4653230066178367,
+      "serverCPUSeconds": 0.9113160000000011
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 3,
+      "requests": 3200,
+      "rps": 20264.067780479647,
+      "p99MS": 1.9982939993496984,
+      "serverCPUSeconds": 0.9385779999999997
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "before",
+      "repeat": 4,
+      "requests": 3200,
+      "rps": 18975.838420922075,
+      "p99MS": 1.783758998499252,
+      "serverCPUSeconds": 0.9816670000000016
+    },
+    {
+      "scenario": "traced-health",
+      "variant": "after",
+      "repeat": 4,
+      "requests": 3200,
+      "rps": 17994.731659585617,
+      "p99MS": 1.8815829971572384,
+      "serverCPUSeconds": 0.8696459999999959
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "before",
+      "repeat": 0,
+      "requests": 160,
+      "rps": 824.4965001268329,
+      "p99MS": 12.468892993638292,
+      "serverCPUSeconds": 0.6041170000000005
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "after",
+      "repeat": 0,
+      "requests": 160,
+      "rps": 1542.2848329827627,
+      "p99MS": 5.554957999265753,
+      "serverCPUSeconds": 0.32284699999999944
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "after",
+      "repeat": 1,
+      "requests": 160,
+      "rps": 1359.7352676385567,
+      "p99MS": 5.065241988631897,
+      "serverCPUSeconds": 0.33483599999999925
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "before",
+      "repeat": 1,
+      "requests": 160,
+      "rps": 855.3869005664545,
+      "p99MS": 12.215134003781714,
+      "serverCPUSeconds": 0.6072350000000011
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "before",
+      "repeat": 2,
+      "requests": 160,
+      "rps": 842.4116127653597,
+      "p99MS": 10.82592800958082,
+      "serverCPUSeconds": 0.5940530000000024
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "after",
+      "repeat": 2,
+      "requests": 160,
+      "rps": 1430.345107704887,
+      "p99MS": 4.580537002766505,
+      "serverCPUSeconds": 0.33273999999999937
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "after",
+      "repeat": 3,
+      "requests": 160,
+      "rps": 1261.0247452334609,
+      "p99MS": 5.396859996835701,
+      "serverCPUSeconds": 0.38236000000000203
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "before",
+      "repeat": 3,
+      "requests": 160,
+      "rps": 899.9525758377464,
+      "p99MS": 11.69500799733214,
+      "serverCPUSeconds": 0.587041000000001
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "before",
+      "repeat": 4,
+      "requests": 160,
+      "rps": 831.0124799284889,
+      "p99MS": 10.183320991927758,
+      "serverCPUSeconds": 0.619549000000001
+    },
+    {
+      "scenario": "large-echo",
+      "variant": "after",
+      "repeat": 4,
+      "requests": 160,
+      "rps": 1579.3099501062568,
+      "p99MS": 6.735866991220973,
+      "serverCPUSeconds": 0.32723600000000097
+    }
+  ],
+  "medians": {
+    "health": {
+      "before": {
+        "rps": 21270.122641611106,
+        "p99MS": 1.5483909955946729,
+        "serverCPUSeconds": 0.851782
+      },
+      "after": {
+        "rps": 21969.32824977432,
+        "p99MS": 1.5405489975819364,
+        "serverCPUSeconds": 0.829742
+      }
+    },
+    "traced-health": {
+      "before": {
+        "rps": 18975.838420922075,
+        "p99MS": 1.783758998499252,
+        "serverCPUSeconds": 0.9540550000000012
+      },
+      "after": {
+        "rps": 20978.08416196365,
+        "p99MS": 1.8815829971572384,
+        "serverCPUSeconds": 0.8696459999999959
+      }
+    },
+    "large-echo": {
+      "before": {
+        "rps": 842.4116127653597,
+        "p99MS": 11.69500799733214,
+        "serverCPUSeconds": 0.6041170000000005
+      },
+      "after": {
+        "rps": 1430.345107704887,
+        "p99MS": 5.396859996835701,
+        "serverCPUSeconds": 0.33273999999999937
+      }
+    }
+  }
+}
