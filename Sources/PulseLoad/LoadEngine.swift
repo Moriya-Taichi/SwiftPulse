@@ -111,12 +111,12 @@ public enum LoadEngine {
         if let traceURL = configuration.traceURL, !Task.isCancelled {
             do {
                 guard let url = URL(string: traceURL), ["http", "https"].contains(url.scheme ?? "") else { throw LoadError.invalidConfiguration }
-                let config = URLSessionConfiguration.ephemeral
-                config.timeoutIntervalForResource = 10
-                let session = URLSession(configuration: config)
-                defer { session.invalidateAndCancel() }
-                let (data, response) = try await session.data(from: url)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw LoadError.invalidConfiguration }
+                var config = LoadConfiguration(url: traceURL)
+                config.timeout = 10; config.concurrency = 1; config.maxResponseBytes = 64 * 1024 * 1024
+                let client = HTTPProbe(configuration: config, captureBody: true)
+                defer { client.close() }
+                let response = await client.perform(URLRequest(url: url))
+                guard response.status == 200, response.error == nil, let data = response.body else { throw LoadError.invalidConfiguration }
                 report.serverTrace = try JSONDecoder().decode(TraceDocument.self, from: data)
             } catch { report.traceError = String(describing: error) }
         }

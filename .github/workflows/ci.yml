@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install test tools
-        run: apt-get update -qq && apt-get install -y -qq python3 nodejs
+        run: apt-get update -qq && apt-get install -y -qq python3 nodejs npm
       - run: swift test
       - run: node --test Tests/StudioTests/*.test.mjs
       - run: swift build -c release

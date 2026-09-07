@@ -16,7 +16,7 @@ actor StudioController {
     private let directory: String
     private let port: Int
     private let assets: [String: HTTPResponse]
-    private var reports: [RunReport] = []
+    private var reports: [StoredRun] = []
     private var task: Task<Void, Never>?
     private var activeID: String?
     private var summary: LoadSummary?
@@ -34,26 +34,38 @@ actor StudioController {
         assets["/"] = index; self.assets = assets
         if let files = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: directory), includingPropertiesForKeys: [.contentModificationDateKey]) {
             for file in files.filter({ $0.pathExtension == "json" }).sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).prefix(20) {
-                if let data = try? Data(contentsOf: file), let report = try? JSONDecoder().decode(RunReport.self, from: data) { reports.append(report) }
+                if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 64 * 1024 * 1024,
+                   let data = try? Data(contentsOf: file), let report = try? JSONDecoder().decode(RunReport.self, from: data) {
+                    reports.append(StoredRun(report, path: file.path))
+                }
             }
-            reports.sort { $0.startedAtEpochMS > $1.startedAtEpochMS }
+            reports.sort { $0.index.startedAtEpochMS > $1.index.startedAtEpochMS }
         }
     }
     func stop() async {
         let running = task; running?.cancel(); await running?.value
     }
     private struct Status: Encodable { let activeID: String?; let summary: LoadSummary?; let error: String? }
-    private struct RunIndex: Encodable { let id: String; let url: String; let startedAtEpochMS: Double; let summary: LoadSummary }
+    private struct RunIndex: Encodable, Sendable { let id: String; let url: String; let startedAtEpochMS: Double; let summary: LoadSummary }
+    private struct StoredRun: Sendable {
+        let index: RunIndex
+        let path: String
+        init(_ report: RunReport, path: String) {
+            index = RunIndex(id: report.id, url: report.configuration.url, startedAtEpochMS: report.startedAtEpochMS, summary: report.summary)
+            self.path = path
+        }
+    }
     func handle(_ request: HTTPRequest) async throws -> HTTPResponse {
         if request.method == "GET", let asset = assets[request.path] { return asset }
         if request.path == "/api/status", request.method == "GET" { return try .json(Status(activeID: activeID, summary: summary, error: error)) }
         if request.path == "/api/runs", request.method == "GET" {
-            return try .json(reports.map { RunIndex(id: $0.id, url: $0.configuration.url, startedAtEpochMS: $0.startedAtEpochMS, summary: $0.summary) })
+            return try .json(reports.map(\.index))
         }
         if request.path.hasPrefix("/api/runs/"), request.method == "GET" {
             let id = String(request.path.dropFirst("/api/runs/".count))
-            guard let report = reports.first(where: { $0.id == id }) else { return .text("Not found", status: 404) }
-            return try .json(report)
+            guard let stored = reports.first(where: { $0.index.id == id }) else { return .text("Not found", status: 404) }
+            let data = try await DiskIO.run { try Data(contentsOf: URL(fileURLWithPath: stored.path)) }
+            return HTTPResponse(headers: ["Content-Type": "application/json"], body: data)
         }
         if request.method == "POST", ["/api/attack", "/api/stop"].contains(request.path) {
             if let origin = request.headers["origin"], !["http://127.0.0.1:\(port)", "http://localhost:\(port)"].contains(origin) { return .text("Invalid origin", status: 403) }
@@ -69,7 +81,7 @@ actor StudioController {
                 do {
                     let result = try await LoadEngine.run(configuration: config, id: id) { progress in await self.update(progress) }
                     try await DiskIO.run { try save(result, to: "\(self.directory)/\(id).json") }
-                    self.reports.insert(result, at: 0)
+                    self.reports.insert(StoredRun(result, path: "\(self.directory)/\(id).json"), at: 0)
                     if self.reports.count > 20 { self.reports.removeLast() }
                 } catch { self.error = String(describing: error) }
                 self.activeID = nil; self.task = nil

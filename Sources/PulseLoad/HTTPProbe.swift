@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-struct ProbeResult: Sendable { let status: Int; let bytes: Int; let error: String? }
+struct ProbeResult: Sendable { let status: Int; let bytes: Int; let error: String?; let body: Data? }
 private final class RequestBinding: @unchecked Sendable {
     private let lock = NSLock()
     private var task: URLSessionTask?
@@ -22,13 +22,16 @@ final class HTTPProbe: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         var status = 0
         var bytes = 0
         var exceeded = false
+        var body = Data()
     }
     private let lock = NSLock()
     private var pending: [Int: Pending] = [:]
     private var session: URLSession!
     private let maximumBody: Int
-    init(configuration: LoadConfiguration) {
+    private let captureBody: Bool
+    init(configuration: LoadConfiguration, captureBody: Bool = false) {
         maximumBody = configuration.maxResponseBytes
+        self.captureBody = captureBody
         super.init()
         let config = URLSessionConfiguration.ephemeral
         config.httpMaximumConnectionsPerHost = configuration.concurrency
@@ -63,6 +66,7 @@ final class HTTPProbe: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         pending[dataTask.taskIdentifier]?.bytes += data.count
         let exceeded = (pending[dataTask.taskIdentifier]?.bytes ?? 0) > maximumBody
         if exceeded { pending[dataTask.taskIdentifier]?.exceeded = true }
+        else if captureBody { pending[dataTask.taskIdentifier]?.body.append(data) }
         lock.unlock()
         if exceeded { dataTask.cancel() }
     }
@@ -70,7 +74,7 @@ final class HTTPProbe: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         lock.lock(); let result = pending.removeValue(forKey: task.taskIdentifier); lock.unlock()
         guard let result else { return }
         result.continuation.resume(returning: ProbeResult(status: result.status, bytes: result.bytes,
-            error: result.exceeded ? "response_body_limit" : error.map { String(describing: $0) }))
+            error: result.exceeded ? "response_body_limit" : error.map { String(describing: $0) }, body: captureBody ? result.body : nil))
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {

@@ -69,6 +69,27 @@ import Testing
     #expect(histogram.summary.mean == 500.5)
 }
 
+@Test func cancelBackpressuredWrite() async throws {
+    let (a, b) = try AsyncSocket.pair()
+    defer { a.close(); b.close() }
+    let writer = Task { try await a.write(Data(repeating: 1, count: 1_048_576)) }
+    try await Task.sleep(for: .milliseconds(20))
+    writer.cancel()
+    _ = await writer.result // Cancellation must release a writer even when the peer never reads.
+}
+
+@Test func responseBodyLimitProducesFailure() async throws {
+    let server = try HTTPServer(port: 0) { _ in HTTPResponse(body: Data(repeating: 1, count: 262144)) }
+    let running = Task { try await server.run() }
+    defer { server.stop(); running.cancel() }
+    var config = LoadConfiguration(url: "http://127.0.0.1:\(await server.listener.localPort())/")
+    config.rate = 2; config.duration = 0.5; config.maxResponseBytes = 1024
+    let report = try await LoadEngine.run(configuration: config)
+    #expect(report.summary.failed == 1)
+    #expect(report.requests.first?.error == "response_body_limit")
+    server.stop(); running.cancel(); _ = await running.result
+}
+
 @Test func traceCapacityIsBounded() {
     let recorder = TraceRecorder(capacity: 2)
     for _ in 0..<5 { recorder.span("test", category: "test", start: monotonicNS(), lane: "test") }

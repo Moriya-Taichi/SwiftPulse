@@ -4,7 +4,7 @@ Verified on 2026-09-07 using Swift 6.0.3, Ubuntu 24.04 x86_64, and Node 24.19.0.
 
 | Check | Local result |
 |---|---|
-| Swift debug build and test | 10 tests passed, including seven malformed-header cases in a parameterized test |
+| Swift debug build and test | 12 tests passed, including seven malformed-header cases in a parameterized test |
 | Swift release build | Passed |
 | Studio data model tests | 5 passed |
 | CLI/server/Studio API integration | Passed |

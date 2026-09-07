@@ -13,6 +13,10 @@ try{
   await page.getByRole('button',{name:'実測サンプル',exact:true}).click();
   await page.waitForFunction(()=>document.getElementById('metric-p99').textContent!=='—');
   assert((await page.locator('#request-rows tr').count())>1);
+  await page.locator('#file').setInputFiles('Studio/demo-run.json');
+  await page.waitForFunction(()=>document.getElementById('run-title').textContent.includes('インポート'));
+  await page.locator('#baseline-file').setInputFiles('Studio/demo-run.json');
+  await page.waitForFunction(()=>document.getElementById('p99-detail').textContent.includes('比較元に対し'));
   await page.locator('#request-rows tr').first().click();
   assert((await page.locator('#trace-note').textContent()).includes('選択中'));
   await page.getByRole('button',{name:'リクエスト',exact:true}).click();
