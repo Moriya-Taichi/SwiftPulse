@@ -91,6 +91,7 @@ public final class HTTPServer: Sendable {
     private let stopFlag = StopFlag()
     public init(address: String = "127.0.0.1", port: UInt16, workers: Int = 4, maxConnections: Int = 1024,
                 requestTimeout: Double = 15, trace: TraceRecorder = TraceRecorder(), handler: @escaping Handler) throws {
+        guard workers > 0, maxConnections > 0, requestTimeout.isFinite, requestTimeout > 0 else { throw SocketError.limitExceeded }
         listener = try AsyncSocket.listen(address: address, port: port)
         self.trace = trace; pool = WorkerPool(workers: workers); limit = ConnectionLimit(maxConnections)
         timeout = requestTimeout; self.handler = handler
@@ -180,6 +181,12 @@ public final class HTTPServer: Sendable {
         let headerData = Data(header.utf8)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
+                if !head && response.body.count <= 65536 {
+                    var packet = headerData
+                    packet.append(response.body)
+                    try await socket.write(packet)
+                    return
+                }
                 try await socket.write(headerData)
                 if !head {
                     for offset in stride(from: 0, to: response.body.count, by: 65536) {

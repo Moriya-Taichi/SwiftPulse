@@ -1,6 +1,7 @@
 #include "CPulse.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -36,6 +37,12 @@ int pulse_listen(const char *address, uint16_t port, int backlog) {
 int pulse_accept(int fd) {
     int child = accept(fd, NULL, NULL);
     if (child >= 0 && pulse_prepare(child) < 0) { int saved = errno; pulse_close(child); errno = saved; return -1; }
+    if (child >= 0) {
+        int yes = 1;
+        if (setsockopt(child, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) < 0) {
+            int saved = errno; pulse_close(child); errno = saved; return -1;
+        }
+    }
     return child;
 }
 int pulse_pair(int fds[2]) {

@@ -122,7 +122,7 @@ try await server.run()
 | 定レート負荷、HTTPSクライアント、レスポンスBody破棄 | ランプレート、分散エージェント、Vegetaのバイナリ形式との互換 |
 | 専用UI、管理下executorのトレース | OSのCPUスケジューラトレース、全Swift Taskの自動捕捉 |
 
-HTTP実装は意図的に狭い範囲を厳密に扱います。重複ヘッダー、Transfer-Encoding、Expect、不正なContent-Lengthは拒否し、曖昧な接続を再利用しません。リクエストBodyは上限内で蓄積し、レスポンスは64 KiBずつ送信します。ゼロコピー実装ではありません。
+HTTP実装は意図的に狭い範囲を厳密に扱います。重複ヘッダー、Transfer-Encoding、Expect、不正なContent-Lengthは拒否し、曖昧な接続を再利用しません。リクエストBodyは上限内で蓄積します。小さなレスポンスはヘッダーとBodyをまとめ、大きなBodyは64 KiBずつ送信します。TCP_NODELAYを有効にして小さな応答の送信待ちを抑えます。ゼロコピー実装ではありません。
 
 ## 検証
 

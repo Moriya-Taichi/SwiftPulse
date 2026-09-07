@@ -16,8 +16,8 @@ The compiler's standalone driver was incompatible with this execution environmen
 ## Integration observations
 
 - 30 planned requests at 30 requests/sec: 30 completed, zero failures, zero dropped slots.
-- The report contained 499 managed executor slices across four logical worker lanes.
-- At 100 planned requests/sec for 0.5 sec, with a concurrency limit of one and a 150 ms asynchronous endpoint delay: 50 planned slots, three completed requests, 47 capacity drops.
+- The report contained 505 managed executor slices across four logical worker lanes.
+- At 100 planned requests/sec for 0.5 sec, with a concurrency limit of one and a 150 ms asynchronous endpoint delay: 50 planned slots, four completed requests, 46 capacity drops.
 - SIGINT produced a parseable partial report with `cancelled = true`.
 - Ambiguous Content-Length input closed the connection without invoking the handler.
 - Studio listed saved reports and completed an API-launched load test.
